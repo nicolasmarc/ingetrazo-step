@@ -1,0 +1,4 @@
+dist/*.zip.tmp
+__pycache__/
+*.pyc
+*.stp
