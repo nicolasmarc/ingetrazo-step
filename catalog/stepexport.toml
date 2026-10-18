@@ -2,23 +2,23 @@
 # Replace the sha256 if the zip was rebuilt (python tools/build_zip.py prints it).
 
 id = "stepexport"
-version = "0.3.0"
+version = "0.4.0"
 author = "Nicolas Marc"
 author_url = "https://github.com/nicolasmarc"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/nicolasmarc/ingetrazo-step"
-download = "https://raw.githubusercontent.com/nicolasmarc/ingetrazo-step/v0.3.0/dist/stepexport-0.3.0.zip"
-sha256 = "9ae3e19ef4a96f8376570af1e8aef692a1f6c7db757711b6cf69ac59e885aa81"
+download = "https://raw.githubusercontent.com/nicolasmarc/ingetrazo-step/v0.4.0/dist/stepexport-0.4.0.zip"
+sha256 = "6b1806af9bdec3fa5e15c0db65881669557deb91f30ba33474ada20ed12e3e27"
 ingetrazo = "0.5.8"
 tags = ["import-export", "productivity"]
 screenshot = "stepexport.png"
 
 [name]
-es = "Exportación STEP"
-en = "STEP export"
-pt = "Exportação STEP"
+es = "STEP: exportar e importar"
+en = "STEP export and import"
+pt = "STEP: exportar e importar"
 
 [summary]
-es = "Exporta los grupos como sólidos STEP (.stp) editables en CAD/CAM: caras planas, agujeros, y cilindros reales reconocidos (taladros, varillas, redondeos). Informe antes de escribir."
-en = "Export groups as STEP solids (.stp) editable in CAD/CAM: planar faces, holes, and true cylinders recognised (drill holes, rods, rounds). Report before writing."
-pt = "Exporta os grupos como sólidos STEP (.stp) editáveis em CAD/CAM: faces planas, furos e cilindros reais reconhecidos (furos, varões, arredondamentos). Relatório antes de gravar."
+es = "Exporta los grupos como sólidos STEP editables (caras planas, agujeros, cilindros reales) e importa ensamblajes STEP: un grupo por pieza, con nombre y color."
+en = "Export groups as editable STEP solids (planar faces, holes, true cylinders) and import STEP assemblies: one group per part, named and coloured."
+pt = "Exporta os grupos como sólidos STEP editáveis (faces planas, furos, cilindros reais) e importa montagens STEP: um grupo por peça, com nome e cor."

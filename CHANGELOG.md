@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0 — 2026-10-18
+- **Import STEP**: Extensions ▸ Import STEP…, the panel's Import… button, or opening a
+  `.stp` / `.step` in IngeTrazo (file opener). One group per part, named and coloured, placed
+  as in the assembly, one undo step, left selected.
+- `stepread.py`: full reader (product tree, placements, units, colours; planes, cylinders,
+  cones, spheres, tori, extrusions, revolutions, B-splines meshed to a tolerance, seams and
+  poles handled, closed parts watertight). Several named solids in one product become
+  several parts. Same file as in the Motion extension.
+- Tests against files written by an independent kernel (OpenCascade via CadQuery) and an
+  export -> import round trip.
+
 ## 0.3.0 — 2026-10-17
 - Repairs before writing: stacked duplicate faces and stray overlapping faces dropped,
   T-junctions stitched, small planar holes capped (merged into their coplanar neighbour).

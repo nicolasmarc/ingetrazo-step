@@ -81,8 +81,11 @@ class StepPanel(QWidget):
         self.btn_check = QPushButton(T["analyse"])
         self.btn_export = QPushButton(T["export"])
         self.btn_export.setDefault(True)
+        self.btn_import = QPushButton(T["import"])
+        self.btn_import.setToolTip(T["menu_import_tip"])
         row.addWidget(self.btn_check)
         row.addWidget(self.btn_export)
+        row.addWidget(self.btn_import)
         lay.addLayout(row)
         self.out = QPlainTextEdit()
         self.out.setReadOnly(True)
@@ -90,6 +93,7 @@ class StepPanel(QWidget):
         lay.addWidget(self.out, 1)
         self.btn_check.clicked.connect(lambda: self.run(None))
         self.btn_export.clicked.connect(self.export)
+        self.btn_import.clicked.connect(self.import_dialog)
         self.cyl.toggled.connect(self.cyl_mode.setEnabled)
         self._load()
 
@@ -128,6 +132,46 @@ class StepPanel(QWidget):
             path += ".stp"
         self.settings.setValue("last_dir", os.path.dirname(path))
         self.run(path)
+
+    def import_dialog(self):
+        last = self.settings.value("last_import_dir", os.path.expanduser("~"))
+        path, _ = QFileDialog.getOpenFileName(self, self.T["import_dialog"], last,
+                                              "STEP (*.stp *.step *.STP *.STEP)")
+        if path:
+            self.settings.setValue("last_import_dir", os.path.dirname(path))
+            self.import_file(path)
+
+    def import_file(self, path):
+        """Import ``path`` into the open model; returns True when parts
+        came in (also used when IngeTrazo opens a .stp)."""
+        import time
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QApplication
+        from .stepimport import import_into
+        T = self.T
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        t0 = time.time()
+        try:
+            asm, groups = import_into(self.app, path)
+        except Exception as exc:              # report, never crash the app
+            QApplication.restoreOverrideCursor()
+            QMessageBox.warning(self, "STEP", f"{T['import_failed']}\n{type(exc).__name__}: {exc}")
+            return False
+        QApplication.restoreOverrideCursor()
+        if not groups:
+            self.out.setPlainText(T["import_none"])
+            return False
+        sel = getattr(self.app.scene, "selection", None)
+        if sel is not None:                   # left selected, ready to use
+            sel.clear()
+            sel.update(groups)
+        text = T["imported"].format(n=len(groups), f=os.path.basename(path), t=time.time() - t0)
+        if asm.warnings:
+            text += "\n" + T["import_unread"].format(
+                w=", ".join(f"{k} ×{n}" for k, n in asm.warnings.items()))
+        text += "\n\n" + "\n".join(" / ".join(p.path) for p in asm.parts[:200])
+        self.out.setPlainText(text)
+        return True
 
     def run(self, path):
         self._save()
@@ -173,3 +217,19 @@ def setup(app):
 
     T = texts()
     app.add_menu_action(T["menu"], show, tip=T["menu_tip"])
+
+    def import_menu():
+        app.show_panel(dock)
+        panel.import_dialog()
+
+    app.add_menu_action(T["menu_import"], import_menu, tip=T["menu_import_tip"])
+
+    def open_step(path):                      # double-click, Open Recent, CLI
+        app.show_panel(dock)
+        return panel.import_file(path)
+
+    for suffix in (".stp", ".step"):
+        try:
+            app.add_file_opener(suffix, open_step)
+        except Exception:                     # older IngeTrazo: menu only
+            pass

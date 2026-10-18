@@ -23,6 +23,13 @@ TEXTS = {
         "solid": "solid", "open": "OPEN", "faces": "{n} faces", "instead": " (instead of {n})",
         "rod": "rod", "round": "round", "hole": "hole", "fillet": "fillet",
         "facets": "facets", "kept": "kept as facets",
+        # import
+        "menu_import": "Import STEP…",
+        "menu_import_tip": "Import a STEP (.stp) assembly: one group per part, named and coloured.",
+        "import": "Import…", "import_dialog": "Import a STEP file",
+        "imported": "{n} part(s) imported from {f} in {t:.1f} s (one undo step).",
+        "import_unread": "Not read: {w}.", "import_failed": "Import failed:",
+        "import_none": "No solid found in this file.",
     },
     "fr": {
         "title": "Export STEP", "menu": "Exporter en STEP…",
@@ -44,6 +51,12 @@ TEXTS = {
         "solid": "solide", "open": "OUVERT", "faces": "{n} faces", "instead": " (au lieu de {n})",
         "rod": "tige", "round": "arrondi", "hole": "trou", "fillet": "congé",
         "facets": "facettes", "kept": "gardé en facettes",
+        "menu_import": "Importer un fichier STEP…",
+        "menu_import_tip": "Importe un assemblage STEP (.stp) : un groupe par pièce, nommé et coloré.",
+        "import": "Importer…", "import_dialog": "Importer un fichier STEP",
+        "imported": "{n} pièce(s) importée(s) de {f} en {t:.1f} s (une seule étape d'annulation).",
+        "import_unread": "Non lu : {w}.", "import_failed": "Échec de l'import :",
+        "import_none": "Aucun solide trouvé dans ce fichier.",
         "reasons": {
             "open border": "bord ouvert", "non-simple border": "contour non simple",
             "open border loop": "contour ouvert",
