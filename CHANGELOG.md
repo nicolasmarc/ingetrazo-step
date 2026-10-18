@@ -8,8 +8,14 @@
   cones, spheres, tori, extrusions, revolutions, B-splines meshed to a tolerance, seams and
   poles handled, closed parts watertight). Several named solids in one product become
   several parts. Same file as in the Motion extension.
+- **Part names kept, both ways.** Export: every part is now its own PRODUCT named after the
+  group, under an assembly named after the file (0.3 wrote a single product "model", so
+  other CAD programs showed every part as an anonymous "Solide"/"Body"). Import: the
+  component name the designer typed wins over a solid name the CAD program gave on its own
+  ("Solide", "Body1", "NAUO3"); accented names (`\X2\` escapes) decoded. Files written by
+  0.3 still import with their names.
 - Tests against files written by an independent kernel (OpenCascade via CadQuery) and an
-  export -> import round trip.
+  export -> import round trip; OpenCascade reads the exported part names.
 
 ## 0.3.0 — 2026-10-17
 - Repairs before writing: stacked duplicate faces and stray overlapping faces dropped,

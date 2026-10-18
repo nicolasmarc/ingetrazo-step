@@ -36,6 +36,10 @@ Export does not write cones, spheres, tori or free-form NURBS surfaces yet.
 painted with its colour, placed as in the assembly, **in one undo step**; the new groups are left
 selected.
 
+Names travel both ways: each exported part is a named component (product) under an
+assembly named after the file, so SpaceClaim, FreeCAD, Fusion and the like show *Marche*,
+not *Solide*; on import the component name wins over a solid's automatic name.
+
 The reader (`stepexport/stepread.py`, pure Python, written from ISO 10303-21) reads the product
 tree, placements, units and colours, and meshes planes, cylinders, cones, spheres, tori, linear
 extrusions, revolutions and B-spline surfaces to a chord tolerance (0.2 mm); planar faces come in

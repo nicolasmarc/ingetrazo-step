@@ -1,8 +1,12 @@
 """ISO 10303-21 writer: B-rep solids (AP214 geometry subset) with planar
 faces and, in V2, cylindrical faces bounded by lines and circles.
 
-One ADVANCED_BREP_SHAPE_REPRESENTATION holds every solid, each a
-MANIFOLD_SOLID_BREP named after its part, so importers show named bodies.
+Every part is its own PRODUCT, named after the part, with its own
+ADVANCED_BREP_SHAPE_REPRESENTATION; several parts hang under an assembly
+PRODUCT named after the file (NEXT_ASSEMBLY_USAGE_OCCURRENCE, identity
+placement). CAD programs name components after products, not after the
+solids inside them — a single "model" product made every part come back
+as an anonymous body. The solids are named after their part too.
 Parts that are not closed are written as shells (SHELL_BASED_SURFACE_MODEL
 holding an OPEN_SHELL) and listed in the report.
 """
@@ -102,7 +106,8 @@ def write_step(parts, path=None, scale=1000.0, unit="mm", author="",
     dx = E.ref("DIRECTION('',(1.,0.,0.))")
     world = E.ref(f"AXIS2_PLACEMENT_3D('',{origin},{dz},{dx})")
 
-    items, styled = [world], []
+    styled = []
+    part_items = []                      # (part name, [solid refs]) per part
     dir_cache, pt_cache = {}, {}
 
     def point(p):
@@ -123,6 +128,7 @@ def write_step(parts, path=None, scale=1000.0, unit="mm", author="",
         report["notes"].extend(f"{part.name}: {n}" for n in sorted(set(notes)))
         soft = soft_index_pairs(part, verts, weld_tol) if cylinders else None
         info = {"name": part.name, "shells": []}
+        items = []
         for si, sh in enumerate(shells):
             name = part.name if len(shells) == 1 else f"{part.name} ({si + 1})"
             regions = []
@@ -233,14 +239,38 @@ def write_step(parts, path=None, scale=1000.0, unit="mm", author="",
                 psa = E.ref(f"PRESENTATION_STYLE_ASSIGNMENT(({ssu}))")
                 styled.append(E.ref(f"STYLED_ITEM('color',({psa}),{solid})"))
         report["parts"].append(info)
+        if items:
+            part_items.append((part.name, items))
 
-    rep = E.ref(f"ADVANCED_BREP_SHAPE_REPRESENTATION('',({','.join(items)}),{ctx})")
-    prod = E.ref(f"PRODUCT('model','model','',({pctx}))")
-    pdf = E.ref(f"PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE('','',{prod},.NOT_KNOWN.)")
+    # --- products: one per part, under an assembly when there are several --
     pdc = E.ref(f"PRODUCT_DEFINITION_CONTEXT('part definition',{app},'design')")
-    pd = E.ref(f"PRODUCT_DEFINITION('design','',{pdf},{pdc})")
-    pds = E.ref(f"PRODUCT_DEFINITION_SHAPE('','',{pd})")
-    E.add(f"SHAPE_DEFINITION_REPRESENTATION({pds},{rep})")
+
+    def product(name, rep_cls, items):
+        nm = _str(name)
+        prod = E.ref(f"PRODUCT({nm},{nm},'',({pctx}))")
+        pdf = E.ref(f"PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE('','',{prod},.NOT_KNOWN.)")
+        pd = E.ref(f"PRODUCT_DEFINITION('design','',{pdf},{pdc})")
+        pds = E.ref(f"PRODUCT_DEFINITION_SHAPE('','',{pd})")
+        rep = E.ref(f"{rep_cls}({nm},({','.join([world] + items)}),{ctx})")
+        E.add(f"SHAPE_DEFINITION_REPRESENTATION({pds},{rep})")
+        return pd, rep
+
+    if len(part_items) == 1:
+        product(part_items[0][0], "ADVANCED_BREP_SHAPE_REPRESENTATION", part_items[0][1])
+    else:
+        root = filename.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+        root = root.rsplit(".", 1)[0] if "." in root else root
+        apd, arep = product(root or "model", "SHAPE_REPRESENTATION", [])
+        idt = E.ref(f"ITEM_DEFINED_TRANSFORMATION('','',{world},{world})")
+        for k, (name, items) in enumerate(part_items):
+            pd, rep = product(name, "ADVANCED_BREP_SHAPE_REPRESENTATION", items)
+            nm = _str(name)
+            nauo = E.ref(f"NEXT_ASSEMBLY_USAGE_OCCURRENCE('{k + 1}',{nm},'',{apd},{pd},$)")
+            npds = E.ref(f"PRODUCT_DEFINITION_SHAPE({nm},'',{nauo})")
+            rr = E.ref(f"( REPRESENTATION_RELATIONSHIP('','',{rep},{arep}) "
+                       f"REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION({idt}) "
+                       f"SHAPE_REPRESENTATION_RELATIONSHIP() )")
+            E.add(f"CONTEXT_DEPENDENT_SHAPE_REPRESENTATION({rr},{npds})")
     if styled:
         E.add(f"MECHANICAL_DESIGN_GEOMETRIC_PRESENTATION_REPRESENTATION('',({','.join(styled)}),{ctx})")
 

@@ -47,6 +47,42 @@ _TOKEN = re.compile(r"""
     )""", re.X)
 
 
+_ESC = re.compile(r"\\X2\\((?:[0-9A-Fa-f]{4})+)\\X0\\|\\X4\\((?:[0-9A-Fa-f]{8})+)\\X0\\"
+                  r"|\\X\\([0-9A-Fa-f]{2})|\\S\\(.)|\\\\")
+
+
+def _text(s):
+    """Text of a STEP string: \\X2\\00E8\\X0\\ -> è, \\X\\E9 -> é (ISO 8859-1),
+    \\S\\h -> high half of ISO 8859-1, \\\\ -> \\."""
+    if "\\" not in s:
+        return s
+
+    def sub(m):
+        if m.group(1):
+            h = m.group(1)
+            return "".join(chr(int(h[i:i + 4], 16)) for i in range(0, len(h), 4))
+        if m.group(2):
+            h = m.group(2)
+            return "".join(chr(int(h[i:i + 8], 16)) for i in range(0, len(h), 8))
+        if m.group(3):
+            return chr(int(m.group(3), 16))
+        if m.group(4):
+            return chr(ord(m.group(4)) + 128)
+        return "\\"
+    return _ESC.sub(sub, s)
+
+
+_GENERIC = re.compile(r"(?i)^\s*(|model|unnamed|sans nom|nauo\d*|solid|solide|body|corps|"
+                      r"volume|brep|part|pi[eè]ce|component|composant|shape|forme|"
+                      r"open ?shell|closed ?shell)\s*[-_ ]?\(?\d*\)?\s*$")
+
+
+def _generic(name):
+    """True for names a CAD program gives on its own ('Solide', 'Body2',
+    'NAUO3', '') — a part keeps the name its designer gave instead."""
+    return name is None or bool(_GENERIC.match(str(name)))
+
+
 def _tokens(text):
     pos, n = 0, len(text)
     match = _TOKEN.match
@@ -80,7 +116,7 @@ def _parse_args(toks, i):
             out.append((v.upper(), sub))
         else:
             if k == "str":
-                out.append(v[1:-1].replace("''", "'"))
+                out.append(_text(v[1:-1].replace("''", "'")))
             elif k == "ref":
                 out.append(Ref(int(v[1:])))
             elif k == "enum":
@@ -1481,15 +1517,18 @@ def read(path_or_text, tol=0.0002, max_angle=math.radians(15)):
     def walk(pd, M, path):
         items = geometry(pd)
         for k, (iname, faces, col) in enumerate(items):
+            # the product (component) name is what the designer typed; a
+            # solid inside often only has the CAD program's own 'Solide'
             if len(items) == 1:
-                name = iname or path[-1]
-                p = path if not iname or iname == path[-1] else path + [iname]
+                name = path[-1] if not _generic(path[-1]) or _generic(iname) else iname
+                p = path if name == path[-1] else path + [name]
             else:
-                name = iname or f"{path[-1]} {k + 1}"
+                name = iname if not _generic(iname) else f"{path[-1]} {k + 1}"
                 p = path + [name]
             parts.append(Part(name, tuple(p), M.copy(), faces, col))
         for child, T, occ_name in children.get(pd, []):
-            walk(child, M @ T, path + [str(occ_name or pd_name.get(child))])
+            nm = occ_name if not _generic(occ_name) else pd_name.get(child)
+            walk(child, M @ T, path + [str(nm or occ_name or "")])
 
     for r in roots:
         walk(r, np.eye(4), [pd_name[r]])
