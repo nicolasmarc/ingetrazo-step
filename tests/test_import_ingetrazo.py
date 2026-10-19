@@ -45,7 +45,10 @@ def _window():
     for _ in range(20):
         _s["qapp"].processEvents()
     dock = next(d for d in win._extension_docks if d.objectName() == "extension_stepexport")
-    _s.update(win=win, panel=dock.widget())
+    panel = dock.widget()
+    if hasattr(panel, "setWidgetResizable"):     # 0.5.9+: a scroll area on short screens
+        panel = panel.widget()
+    _s.update(win=win, panel=panel)
     return win
 
 
