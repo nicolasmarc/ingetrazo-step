@@ -216,6 +216,7 @@ class Face:
     kind: str                       # surface type, lower case
     triangles: np.ndarray           # (n, 3, 3) part frame, metres
     loops: list = None              # planar faces: [outer, hole, ...] (k, 3)
+    ref: int = None                 # the face's entity number in the file
 
 
 @dataclass
@@ -370,6 +371,26 @@ class _Reader:
         self.note(f"courbe {k}")
         return np.array([p0, p1])
 
+    def curve_full(self, cref):
+        """The whole curve, densely (None for lines and unknown curves)."""
+        k = self.kind(cref)
+        a = self.e[int(cref)]
+        if k in ("SURFACE_CURVE", "SEAM_CURVE", "INTERSECTION_CURVE"):
+            return self.curve_full(a[k][1])
+        if k in ("CIRCLE", "ELLIPSE"):
+            o, x, y, z = self.axis2(a[k][1])
+            ra = float(a[k][2])
+            rb = float(a[k][3]) if k == "ELLIPSE" else ra
+            n = self._n_arc(max(ra, rb), 2 * math.pi)
+            ts = 2 * math.pi * np.arange(n + 1) / n
+            return o + np.outer(ra * np.cos(ts), x) + np.outer(rb * np.sin(ts), y)
+        if "B_SPLINE_CURVE" in a or k.startswith("B_SPLINE_CURVE") or "B_SPLINE_CURVE_WITH_KNOTS" in a:
+            deg, P, U, w = self._bspline_curve(a)
+            lo, hi = U[deg], U[len(U) - deg - 1]
+            n = max(256, 32 * len(P))
+            return np.array([_bspline_eval(deg, P, U, w, t) for t in np.linspace(lo, hi, n + 1)])
+        return None
+
     def _bspline_curve(self, a):
         if "B_SPLINE_CURVE_WITH_KNOTS" in a and "B_SPLINE_CURVE" not in a:
             b = a["B_SPLINE_CURVE_WITH_KNOTS"]
@@ -377,7 +398,8 @@ class _Reader:
             w = None
         else:
             b = a["B_SPLINE_CURVE"]
-            deg, cps = int(b[1]), b[2]
+            # in a complex entity the name sits in REPRESENTATION_ITEM
+            deg, cps = (int(b[0]), b[1]) if isinstance(b[1], list) else (int(b[1]), b[2])
             kk = a["B_SPLINE_CURVE_WITH_KNOTS"]
             mult, knots = kk[0], kk[1]
             w = a.get("RATIONAL_B_SPLINE_CURVE")
@@ -511,13 +533,40 @@ class _Reader:
         if S is None:
             self.note(f"surface {sk}")
             S = _Surface.plane_fit(loops)
+        loops0 = loops
+        if hasattr(S, "on_axis"):
+            loops = [_split_axis_points(L, S) for L in loops]
         # loops -> uv (each loop unwrapped continuously)
         uvs = [S.to_uv_loop(L) for L in loops]
         if isinstance(S, _Sphere) and len(loops) == 1:
             w = _winding(uvs[0], S.period_u)
             if abs(abs(w) - S.period_u) < 1e-6 * S.period_u:   # a cap round a pole
                 S = _SphereCap(S, (1.0 if w > 0 else -1.0) * (1.0 if same else -1.0))
+                loops = loops0                         # no axis to split at
                 uvs = [S.to_uv_loop(L) for L in loops]
+        if isinstance(S, _Sphere) and not any(
+                abs(abs(_winding(u, S.period_u)) - S.period_u) < 1e-6 * S.period_u for u in uvs):
+            # no loop goes round the file's axis: seen from above the middle
+            # of the outline, the face is a plain disc, or a disc with the
+            # outline's cap cut out (a ball on its stem) seen from the far side
+            Q = loops0[0] - S.o
+            g = Q.mean(axis=0)
+            c = np.linalg.svd(Q - g)[2][2]                 # the outline's plane
+            if len(Q) >= 3 and np.linalg.norm(c) > 0:
+                c = c * (1.0 if c @ g >= 0 else -1.0) / np.linalg.norm(c)
+                A = _Azimuthal(S, c)
+                if (_area2(A.to_uv_loop(loops0[0])) > 0) != bool(same):
+                    A = _Azimuthal(S, -c)
+                S = A
+                loops = loops0
+                uvs = [S.to_uv_loop(L) for L in loops]
+        if len(uvs) > 1 and getattr(S, "period_u", None) is None:
+            # the outline is the loop that holds the others: some files flag
+            # a hole as the outer bound
+            k = max(range(len(uvs)), key=lambda q: abs(_area2(uvs[q])))
+            if k:
+                loops = [loops[k]] + loops[:k] + loops[k + 1:]
+                uvs = [uvs[k]] + uvs[:k] + uvs[k + 1:]
         tris_uv, pts_uv = _triangulate_uv(uvs, S, same)
         if tris_uv is None:
             self.note("faces non maillées")
@@ -530,7 +579,14 @@ class _Reader:
         # boundary points keep their exact 3D position
         nb = sum(len(L) for L in loops)
         P3[:nb] = np.concatenate(loops)
-        T = P3[np.asarray(tris_uv, int)]
+        tris_uv = np.asarray(tris_uv, int)
+        T = P3[tris_uv]
+        # no flat triangles (two corners on one point: an apex met twice)
+        keep = np.linalg.norm(np.cross(T[:, 1] - T[:, 0], T[:, 2] - T[:, 0]), axis=1) > 0
+        same_pt = ((np.abs(T[:, 0] - T[:, 1]).max(axis=1) == 0) | (np.abs(T[:, 1] - T[:, 2]).max(axis=1) == 0)
+                   | (np.abs(T[:, 2] - T[:, 0]).max(axis=1) == 0))
+        keep &= ~same_pt
+        tris_uv, T = tris_uv[keep], T[keep]
         # orientation: along the surface normal (x same_sense)
         c = T.mean(axis=1)
         n_tri = np.cross(T[:, 1] - T[:, 0], T[:, 2] - T[:, 0])
@@ -596,6 +652,7 @@ class _Reader:
                 self.note("faces illisibles")
                 face = None
             if face is not None:
+                face.ref = int(f)
                 out.append(face)
         return out
 
@@ -635,7 +692,24 @@ def _transform_face(f, T, unit):
     R, t = T[:3, :3], T[:3, 3] * unit
     tri = f.triangles @ R.T + t
     loops = None if f.loops is None else [L @ R.T + t for L in f.loops]
-    return Face(f.kind, tri, loops)
+    return Face(f.kind, tri, loops, f.ref)
+
+
+def _split_axis_points(L, S):
+    """A loop point on the surface's axis (a cone's apex, a sphere's pole)
+    twice: in (u, v) the axis is a line, met at the angle of the side the
+    loop comes from, and left at the angle of the side it goes to."""
+    if len(L) < 3:
+        return L
+    on = [S.on_axis(p) for p in L]
+    if not any(on) or all(on):
+        return L
+    out = []
+    for p, o in zip(L, on):
+        out.append(p)
+        if o:
+            out.append(p.copy())
+    return np.array(out)
 
 
 def _perimeter(P):
@@ -676,9 +750,8 @@ def _span(deg, U, t):
 
 
 def _basis(deg, U, t, i):
-    N = np.zeros(deg + 1)
-    N[0] = 1.0
-    left, right = np.zeros(deg + 1), np.zeros(deg + 1)
+    N = [1.0] + [0.0] * deg
+    left, right = [0.0] * (deg + 1), [0.0] * (deg + 1)
     for j in range(1, deg + 1):
         left[j] = t - U[i + 1 - j]
         right[j] = U[i + j] - t
@@ -689,7 +762,7 @@ def _basis(deg, U, t, i):
             N[r] = saved + right[r + 1] * tmp
             saved = left[j - r] * tmp
         N[j] = saved
-    return N
+    return np.array(N)
 
 
 def _bspline_eval(deg, P, U, w, t):
@@ -720,7 +793,7 @@ class _Surface:
             if sk == "CYLINDRICAL_SURFACE":
                 return _Cylinder(rd.axis2(a[sk][1]), float(a[sk][2]))
             if sk == "CONICAL_SURFACE":
-                return _Cone(rd.axis2(a[sk][1]), float(a[sk][2]), float(a[sk][3]))
+                return _Cone(rd.axis2(a[sk][1]), float(a[sk][2]), float(a[sk][3]), loops)
             if sk == "SPHERICAL_SURFACE":
                 return _Sphere(rd.axis2(a[sk][1]), float(a[sk][2]))
             if sk == "TOROIDAL_SURFACE":
@@ -731,7 +804,7 @@ class _Surface:
                 ax = rd.get(a[sk][2], "AXIS1_PLACEMENT")
                 o = rd.point(ax[1])
                 z = rd.direction(ax[2]) if ax[2] is not None else np.array([0, 0, 1.0])
-                return _Revolution(o, z)
+                return _Revolution(o, z, rd.curve_full(a[sk][1]), loops)
             if "B_SPLINE_SURFACE" in a or sk.startswith("B_SPLINE_SURFACE") \
                     or "B_SPLINE_SURFACE_WITH_KNOTS" in a:
                 return _BSplineSurface(rd, a)
@@ -780,12 +853,38 @@ class _Periodic(_Surface):
     period_u = None
 
     def to_uv_loop(self, L):
+        axis = getattr(self, "on_axis", None)
+        if axis is not None and len(L) > 2:
+            # start just after the axis, so the angles run unbroken to the
+            # next visit there (across the axis the jump means nothing)
+            on = [axis(p) for p in L]
+            if any(on) and not all(on):
+                n = len(L)
+                k = next(i for i in range(n) if on[i - 1] and not on[i])
+                if k:
+                    return np.roll(self.to_uv_loop(np.roll(np.asarray(L), -k, axis=0)), k, axis=0)
         uv = np.array([self.to_uv(p) for p in L], float)
-        if self.period_u is not None and len(uv) > 1:   # continuous angle
+        if axis is not None and len(uv) > 2:
+            # a point on the axis (apex, pole) takes the angle of the point
+            # it comes from or goes to: loops arrive there twice (see
+            # _split_axis_points), once from each side
+            on = np.array([axis(p) for p in L])
+        else:
+            on = np.zeros(len(uv), bool)
+        keep = ~on
+        if self.period_u is not None and keep.sum() > 1:   # continuous angle
             per = self.period_u
-            d = np.diff(uv[:, 0])
+            ix = np.nonzero(keep)[0]
+            d = np.diff(uv[ix, 0])
             d = d - per * np.round(d / per)
-            uv[1:, 0] = uv[0, 0] + np.cumsum(d)
+            uv[ix[1:], 0] = uv[ix[0], 0] + np.cumsum(d)
+        if on.any() and keep.any():
+            n = len(uv)
+            for i in np.nonzero(on)[0]:
+                j = (i - 1) % n if keep[(i - 1) % n] else (i + 1) % n
+                if not keep[j]:
+                    j = (i - 1) % n
+                uv[i, 0] = uv[j, 0]
         return uv
 
 
@@ -814,11 +913,22 @@ class _Cylinder(_Periodic):
 class _Cone(_Periodic):
     kind = "cône"
 
-    def __init__(self, ax, r, half):
+    def __init__(self, ax, r, half, loops=None):
         self.o, self.x, self.y, self.z = ax
         self.r, self.ta = r, math.tan(half)
-        self.rm = max(r, 1e-9)
+        # the angle is scaled by the radius where the face is (the file's
+        # reference radius may be far from it: uv would be all stretched)
+        rr = []
+        for L in loops or []:
+            for p in L:
+                rr.append(abs(self.r + ((p - self.o) @ self.z) * self.ta))
+        rm = float(np.mean(rr)) if rr else r
+        self.rm = max(rm, 1e-9 * max(1.0, abs(r)), 1e-12)
         self.period_u = 2 * math.pi * self.rm
+
+    def on_axis(self, p):
+        """At the apex, where the angle means nothing."""
+        return abs(self.r + ((p - self.o) @ self.z) * self.ta) < 1e-7 * self.rm
 
     def to_uv(self, p):
         d = p - self.o
@@ -861,6 +971,11 @@ class _Sphere(_Periodic):
     def pole_v(self, side):
         return side * self.r * math.pi / 2
 
+    def on_axis(self, p):
+        """At a pole, where the angle means nothing."""
+        d = p - self.o
+        return np.linalg.norm(d - self.z * (d @ self.z)) < 1e-7 * self.r
+
 
 class _SphereCap(_Surface):
     """A sphere seen from one pole (azimuthal equidistant): a cap round
@@ -885,6 +1000,39 @@ class _SphereCap(_Surface):
         f = self.side * (math.pi / 2 - rho / s.r)
         return s.o + s.r * (math.cos(f) * (math.cos(t) * s.x + math.sin(t) * s.y)
                             + math.sin(f) * s.z)
+
+    def normal(self, p, uv):
+        d = p - self.s.o
+        return d / (np.linalg.norm(d) or 1)
+
+
+class _Azimuthal(_Surface):
+    """A sphere seen from above the point ``c`` (azimuthal equidistant,
+    (u, v, outward normal) right-handed): everything but the far point
+    becomes a plain disc."""
+    kind = "sphère"
+    curved = True
+
+    def __init__(self, sph, c):
+        self.s = sph
+        self.c = np.asarray(c, float)
+        e1 = np.cross(self.c, [1.0, 0, 0] if abs(self.c[0]) < 0.9 else [0, 1.0, 0])
+        self.e1 = e1 / np.linalg.norm(e1)
+        self.e2 = np.cross(self.c, self.e1)
+
+    def to_uv(self, p):
+        s = self.s
+        d = (p - s.o) / s.r
+        f = math.acos(max(-1.0, min(1.0, float(d @ self.c))))   # angle from c
+        t = math.atan2(float(d @ self.e2), float(d @ self.e1))
+        return (s.r * f * math.cos(t), s.r * f * math.sin(t))
+
+    def point(self, u, v):
+        s = self.s
+        f = math.hypot(u, v) / s.r
+        t = math.atan2(v, u)
+        return s.o + s.r * (math.cos(f) * self.c + math.sin(f) * (math.cos(t) * self.e1
+                                                                 + math.sin(t) * self.e2))
 
     def normal(self, p, uv):
         d = p - self.s.o
@@ -935,46 +1083,76 @@ class _Torus(_Periodic):
 
 
 class _Revolution(_Periodic):
-    """Revolution of a profile: (angle x mean radius, axial position);
-    points are put back at the radius interpolated along the boundary."""
+    """A profile curve turned about an axis: (angle x mean radius, arc
+    length along the profile). The profile is the file's own swept curve,
+    sampled whole; without it, the boundary points stand in for it."""
     kind = "révolution"
 
-    def __init__(self, o, z):
+    def __init__(self, o, z, profile=None, loops=None):
         self.o, self.z = o, z
         a = np.array([1.0, 0, 0]) if abs(z[0]) < 0.9 else np.array([0, 1.0, 0])
         self.x = np.cross(z, a)
         self.x /= np.linalg.norm(self.x)
         self.y = np.cross(self.z, self.x)
-        self.rm = 1.0
-        self.period_u = 2 * math.pi
-        self._prof = None
-
-    def to_uv_loop(self, L):
-        d = L - self.o
-        h = d @ self.z
-        rho = np.linalg.norm(d - np.outer(h, self.z), axis=1)
-        self.rm = max(float(rho.mean()), 1e-9)
+        P = profile
+        if P is None or len(P) < 2:
+            P = np.concatenate(loops) if loops else np.array([o, o + z])
+            d = P - o
+            h = d @ z
+            P = P[np.argsort(h)]
+        d = P - o
+        self.h = d @ z
+        self.rho = np.linalg.norm(d - np.outer(self.h, z), axis=1)
+        seg = np.hypot(np.diff(self.h), np.diff(self.rho))
+        self.s = np.concatenate([[0.0], np.cumsum(seg)])
+        rr = []
+        for L in loops or []:
+            dl = L - o
+            hl = dl @ z
+            rr.append(np.linalg.norm(dl - np.outer(hl, z), axis=1))
+        rm = float(np.concatenate(rr).mean()) if rr else float(self.rho.mean())
+        self.rm = max(rm, 1e-9)
         self.period_u = 2 * math.pi * self.rm
-        order = np.argsort(h)
-        self._prof = (h[order], rho[order]) if self._prof is None else (
-            np.concatenate([self._prof[0], h]), np.concatenate([self._prof[1], rho]))
-        o = np.argsort(self._prof[0])
-        self._prof = (self._prof[0][o], self._prof[1][o])
-        return super().to_uv_loop(L)
+
+    def _at(self, p):
+        d = p - self.o
+        h = float(d @ self.z)
+        rho = float(np.linalg.norm(d - h * self.z))
+        return h, rho, d
+
+    def on_axis(self, p):
+        return self._at(p)[1] < 1e-7 * self.rm
 
     def to_uv(self, p):
-        d = p - self.o
-        return (self.rm * math.atan2(d @ self.y, d @ self.x), d @ self.z)
+        h, rho, d = self._at(p)
+        a0, a1 = np.column_stack([self.h[:-1], self.rho[:-1]]), np.column_stack([self.h[1:], self.rho[1:]])
+        ab = a1 - a0
+        q = np.array([h, rho])
+        t = np.clip(np.einsum("ij,ij->i", q - a0, ab) / np.maximum(
+            np.einsum("ij,ij->i", ab, ab), 1e-300), 0, 1)
+        dist = np.linalg.norm(a0 + ab * t[:, None] - q, axis=1)
+        i = int(np.argmin(dist))
+        s = self.s[i] + t[i] * (self.s[i + 1] - self.s[i])
+        return (self.rm * math.atan2(d @ self.y, d @ self.x), s)
+
+    def _hr(self, s):
+        return float(np.interp(s, self.s, self.h)), float(np.interp(s, self.s, self.rho))
 
     def point(self, u, v):
-        rho = float(np.interp(v, *self._prof)) if self._prof is not None else self.rm
+        h, rho = self._hr(v)
         t = u / self.rm
-        return self.o + rho * (math.cos(t) * self.x + math.sin(t) * self.y) + v * self.z
+        return self.o + rho * (math.cos(t) * self.x + math.sin(t) * self.y) + h * self.z
 
     def normal(self, p, uv):
-        d = p - self.o
-        d = d - self.z * (d @ self.z)
-        return d / (np.linalg.norm(d) or 1)
+        # S_u x S_v: (dh/ds) radial - (drho/ds) axis, s along the profile
+        e = 1e-6 * max(1.0, self.s[-1])
+        h0, r0 = self._hr(uv[1] - e)
+        h1, r1 = self._hr(uv[1] + e)
+        t = uv[0] / self.rm
+        radial = math.cos(t) * self.x + math.sin(t) * self.y
+        n = (h1 - h0) * radial - (r1 - r0) * self.z
+        ln = np.linalg.norm(n)
+        return n / ln if ln > 0 else radial
 
 
 class _Extrusion(_Surface):
@@ -989,8 +1167,11 @@ class _Extrusion(_Surface):
         k = rd.kind(cref)
         if k in ("LINE",):
             self.curved = False
-        c = rd.curve_points(cref, base[0], base[0])
-        if len(c) < 8:
+        # the generating curve, whole (sampled between one point and
+        # itself it went round and back, and the two long sides of a
+        # face folded onto each other)
+        c = rd.curve_full(cref)
+        if c is None or len(c) < 8:
             c = base
         self.curve = c - np.outer(c @ self.d, self.d)
         seg = np.linalg.norm(np.diff(self.curve, axis=0), axis=1)
@@ -1020,6 +1201,10 @@ class _Extrusion(_Surface):
         return n / (np.linalg.norm(n) or 1)
 
 
+def _true(x):
+    return x is True or str(x).strip(".").upper() == "T"
+
+
 class _BSplineSurface(_Surface):
     kind = "b-spline"
 
@@ -1029,9 +1214,11 @@ class _BSplineSurface(_Surface):
             du, dv, grid = int(b[1]), int(b[2]), b[3]
             mu, mv, ku, kv = b[8], b[9], b[10], b[11]
             w = None
+            flags = (b[5], b[6])
         else:
             b = a["B_SPLINE_SURFACE"]
             du, dv, grid = int(b[0]), int(b[1]), b[2]
+            flags = (b[4], b[5])
             kk = a["B_SPLINE_SURFACE_WITH_KNOTS"]
             mu, mv, ku, kv = kk[0], kk[1], kk[2], kk[3]
             r = a.get("RATIONAL_B_SPLINE_SURFACE")
@@ -1043,6 +1230,28 @@ class _BSplineSurface(_Surface):
         self.V = np.repeat(np.array(kv, float), np.array(mv, int))
         self.u0, self.u1 = self.U[du], self.U[len(self.U) - du - 1]
         self.v0, self.v1 = self.V[dv], self.V[len(self.V) - dv - 1]
+        # closed directions (a tube): flagged in the file, or first and last
+        # rows of control points together. Loops then cross the seam: their
+        # parameter is unwrapped, and the surface read round again.
+        P = self.P
+        tol = 1e-9 * max(1.0, float(np.ptp(P)))
+        same_u = np.abs(P[0] - P[-1]).max() < tol
+        same_v = np.abs(P[:, 0] - P[:, -1]).max() < tol
+        self.closed_u = bool(_true(flags[0]) or same_u)
+        self.closed_v = bool(_true(flags[1]) or same_v)
+        self.swapped = False
+        self._W = None if self.w is None else np.asarray(self.w, float)
+        if self.closed_v and not self.closed_u:
+            # closed the other way: swap u and v, so the period is along u
+            # (the normal, S_u x S_v, then turns round: noted)
+            self.P = np.transpose(self.P, (1, 0, 2))
+            self.w = None if self.w is None else np.transpose(self.w)
+            self._W = None if self._W is None else self._W.T
+            self.du, self.dv = self.dv, self.du
+            self.U, self.V = self.V, self.U
+            self.u0, self.u1, self.v0, self.v1 = self.v0, self.v1, self.u0, self.u1
+            self.closed_u, self.closed_v = True, False
+            self.swapped = True
         # a grid for the inverse, and a metric scale for uv
         n = 24
         self.gu = np.linspace(self.u0, self.u1, n)
@@ -1052,22 +1261,30 @@ class _BSplineSurface(_Surface):
         lv = np.linalg.norm(np.diff(self.G, axis=1), axis=2).sum(1).mean()
         self.su = max(lu, 1e-12) / (self.u1 - self.u0 or 1)
         self.sv = max(lv, 1e-12) / (self.v1 - self.v0 or 1)
+        # closed round u: periodic like a cylinder (bands, seams)
+        self.period_u = (self.u1 - self.u0) * self.su if self.closed_u else None
 
     def _eval(self, u, v):
         i = _span(self.du, self.U, u)
         j = _span(self.dv, self.V, v)
         Nu = _basis(self.du, self.U, u, i)
         Nv = _basis(self.dv, self.V, v, j)
-        num, den = np.zeros(3), 0.0
-        for a in range(self.du + 1):
-            for b in range(self.dv + 1):
-                wgt = Nu[a] * Nv[b]
-                ii, jj = i - self.du + a, j - self.dv + b
-                if self.w is not None:
-                    wgt *= self.w[ii][jj]
-                num += wgt * self.P[ii, jj]
-                den += wgt
-        return num / den
+        blk = self.P[i - self.du:i + 1, j - self.dv:j + 1]            # (du+1, dv+1, 3)
+        W = np.outer(Nu, Nv)
+        if self.w is not None:
+            W = W * self._W[i - self.du:i + 1, j - self.dv:j + 1]
+        return np.einsum("ab,abk->k", W, blk) / W.sum()
+
+    def _wrap(self, u, v):
+        if self.closed_u:
+            u = self.u0 + (u - self.u0) % (self.u1 - self.u0)
+        else:
+            u = min(max(u, self.u0), self.u1)
+        if self.closed_v:
+            v = self.v0 + (v - self.v0) % (self.v1 - self.v0)
+        else:
+            v = min(max(v, self.v0), self.v1)
+        return u, v
 
     def _invert(self, p):
         d = np.linalg.norm(self.G - p, axis=2)
@@ -1081,8 +1298,7 @@ class _BSplineSurface(_Surface):
             Sv = (self._eval(u, min(v + hv, self.v1)) - self._eval(u, max(v - hv, self.v0))) / (2 * hv)
             J = np.column_stack([Su, Sv])
             step, *_ = np.linalg.lstsq(J, p - S, rcond=None)
-            u = min(max(u + step[0], self.u0), self.u1)
-            v = min(max(v + step[1], self.v0), self.v1)
+            u, v = self._wrap(u + step[0], v + step[1])
             if np.linalg.norm(step) < 1e-12:
                 break
         return u, v
@@ -1091,17 +1307,28 @@ class _BSplineSurface(_Surface):
         u, v = self._invert(p)
         return (u * self.su, v * self.sv)
 
+    def to_uv_loop(self, L):
+        uv = np.array([self.to_uv(p) for p in L], float)
+        for k, closed, per in ((0, self.closed_u, (self.u1 - self.u0) * self.su),
+                               (1, self.closed_v, (self.v1 - self.v0) * self.sv)):
+            if closed and len(uv) > 1:                   # across the seam
+                d = np.diff(uv[:, k])
+                d = d - per * np.round(d / per)
+                uv[1:, k] = uv[0, k] + np.cumsum(d)
+        return uv
+
     def point(self, u, v):
-        return self._eval(min(max(u / self.su, self.u0), self.u1),
-                          min(max(v / self.sv, self.v0), self.v1))
+        return self._eval(*self._wrap(u / self.su, v / self.sv))
 
     def normal(self, p, uv):
-        u, v = uv[0] / self.su, uv[1] / self.sv
+        u, v = self._wrap(uv[0] / self.su, uv[1] / self.sv)
         hu = (self.u1 - self.u0) * 1e-5
         hv = (self.v1 - self.v0) * 1e-5
         Su = self._eval(min(u + hu, self.u1), v) - self._eval(max(u - hu, self.u0), v)
         Sv = self._eval(u, min(v + hv, self.v1)) - self._eval(u, max(v - hv, self.v0))
         n = np.cross(Su, Sv)
+        if self.swapped:
+            n = -n
         return n / (np.linalg.norm(n) or 1)
 
 
@@ -1152,8 +1379,13 @@ def _triangulate_uv(uvs, S, same=True):
     # periodic band without a seam: two loops each going once around
     if S.curved and getattr(S, "period_u", None) and len(uvs) == 2:
         spans = [abs(u[-1, 0] - u[0, 0] + (u[1, 0] - u[0, 0] if len(u) > 1 else 0)) for u in uvs]
-        wraps = [abs((u[:, 0].max() - u[:, 0].min()) - S.period_u) < 0.02 * S.period_u
-                 and abs(_area2(u)) < 1e-9 * S.period_u ** 2 for u in uvs]
+        per_ = S.period_u
+
+        def turns(u):                     # net way round, closing step included
+            close = u[0, 0] - u[-1, 0]
+            close -= per_ * round(close / per_)
+            return (u[-1, 0] - u[0, 0]) + close
+        wraps = [len(u) > 2 and abs(abs(turns(u)) - per_) < 1e-6 * per_ for u in uvs]
         if all(wraps):
             return _band(uvs, offs, pts, S)
     outer = loops[0]
@@ -1165,30 +1397,95 @@ def _triangulate_uv(uvs, S, same=True):
             continue
         holes.append(h if _area2(pts[h]) < 0 else h[::-1])
     poly = _bridge(outer, holes, pts)
-    tris = _earclip(poly, pts)
+    tris = _earclip(poly, pts, cuts=bool(holes))
+    want = abs(_area2(pts[outer])) / 2 - sum(abs(_area2(pts[h])) / 2 for h in holes)
+    if not tris or abs(_tri_area(pts, tris) - want) > 1e-6 * max(want, 1e-30):
+        # ear clipping lost its way (cuts to lined-up holes): slices instead
+        pts, tris = _slices(pts, [outer] + holes)
     return (tris if tris else None), pts
 
 
+def _tri_area(pts, tris):
+    T = np.asarray(pts)[np.asarray(tris, int)]
+    return float(0.5 * np.abs((T[:, 1, 0] - T[:, 0, 0]) * (T[:, 2, 1] - T[:, 0, 1])
+                              - (T[:, 2, 0] - T[:, 0, 0]) * (T[:, 1, 1] - T[:, 0, 1])).sum())
+
+
+def _slices(pts, loops):
+    """Triangles of the region inside an outline and outside its holes
+    (``loops``: index lists into ``pts``), cut in horizontal slices at every
+    vertex: in each slice the region is a row of trapezoids between the
+    sides that cross it (even-odd). Never fails. ``pts`` keep their order;
+    the points where the slices meet the sides (on the sides) are added
+    after them."""
+    P = np.asarray(pts, float)
+    A = np.concatenate([P[L] for L in loops])
+    B = np.concatenate([P[np.roll(np.asarray(L), -1)] for L in loops])
+    ys = np.unique(P[:, 1])
+    out_pts = [p for p in P]
+    key = {(float(p[0]), float(p[1])): k for k, p in enumerate(P)}
+
+    def at(x, y):
+        k = key.get((float(x), float(y)))
+        if k is None:
+            k = len(out_pts)
+            out_pts.append(np.array([x, y]))
+            key[(float(x), float(y))] = k
+        return k
+
+    lo, hi = np.minimum(A[:, 1], B[:, 1]), np.maximum(A[:, 1], B[:, 1])
+    tris = []
+    for y0, y1 in zip(ys[:-1], ys[1:]):
+        ym = 0.5 * (y0 + y1)
+        e = np.nonzero((lo <= y0) & (hi >= y1) & (hi > lo))[0]
+        if not len(e):
+            continue
+        def xat(i, y):
+            t = (y - A[i, 1]) / (B[i, 1] - A[i, 1])
+            return A[i, 0] + t * (B[i, 0] - A[i, 0])
+        e = sorted(e, key=lambda i: xat(i, ym))
+        for k in range(0, len(e) - 1, 2):            # inside between pairs
+            l, r = e[k], e[k + 1]
+            a = at(xat(l, y0), y0)
+            b = at(xat(r, y0), y0)
+            c = at(xat(r, y1), y1)
+            d = at(xat(l, y1), y1)
+            if a != b:
+                tris.append([a, b, c])
+            if c != d:
+                tris.append([a, c, d])
+    return np.array(out_pts), tris
+
+
 def _band(uvs, offs, pts, S):
-    """Strip between two loops that each wrap once around (no seam)."""
-    a = list(range(offs[0], offs[1]))
-    b = list(range(offs[1], offs[2]))
-    # sort both by u, then zip with a moving front
-    a.sort(key=lambda i: pts[i, 0])
-    b.sort(key=lambda i: pts[i, 0])
+    """Strip between two loops that each wrap once around (no seam). Both
+    are taken round the same turn [u0, u0 + period) and cut open along a
+    seam of points from one loop to the other (the same seam again one
+    period on): one polygon, meshed like any other. The seam is split into
+    short steps so the strip is refined like the rest of the surface."""
     per = S.period_u
-    pts = pts.copy()
-    tris, i, j = [], 0, 0
-    A, B = a + [a[0]], b + [b[0]]
-    ua = [pts[k, 0] for k in a] + [pts[a[0], 0] + per]
-    ub = [pts[k, 0] for k in b] + [pts[b[0], 0] + per]
-    while i < len(a) or j < len(b):
-        if j >= len(b) or (i < len(a) and ua[i + 1] <= ub[j + 1]):
-            tris.append([A[i], A[i + 1], B[j]])
-            i += 1
-        else:
-            tris.append([A[i], B[j + 1], B[j]])
-            j += 1
+    pts = np.array(pts, float)
+    u0 = float(pts[offs[0]:offs[1], 0].min())
+    pts[offs[0]:offs[2], 0] = u0 + (pts[offs[0]:offs[2], 0] - u0) % per
+    a = sorted(range(offs[0], offs[1]), key=lambda i: pts[i, 0])
+    b = sorted(range(offs[1], offs[2]), key=lambda i: pts[i, 0])
+    pa, pb = pts[a[0]], pts[b[0]]
+    n = max(1, int(math.ceil(abs(pb[1] - pa[1]) / (per / 8.0))))
+    col = [pa + (pb - pa) * k / n for k in range(1, n)]          # a0 -> b0, inside
+    extra = [pa + (per, 0.0), pb + (per, 0.0)] + col + [c + (per, 0.0) for c in col]
+    base = len(pts)
+    pts = np.vstack([pts] + [np.atleast_2d(e) for e in extra])
+    a_end, b_end = base, base + 1
+    left = list(range(base + 2, base + 2 + len(col)))             # a0 -> b0
+    right = list(range(base + 2 + len(col), base + 2 + 2 * len(col)))
+    # a along, its copy, down the right seam, b back, up the left seam
+    poly = a + [a_end] + right + [b_end] + b[::-1] + left[::-1]
+    if _area2(pts[poly]) < 0:
+        poly = poly[::-1]
+    tris = _earclip(poly, pts)
+    want = abs(_area2(pts[poly])) / 2
+    if not tris or abs(_tri_area(pts, tris) - want) > 1e-6 * max(want, 1e-30):
+        pts, tris = _slices(pts, [poly])
     return tris, pts
 
 
@@ -1200,11 +1497,16 @@ def _bridge(outer, holes, pts):
         k = max(range(len(h)), key=lambda q: pts[h[q], 0])
         hp = pts[h[k]]
         # nearest visible outer vertex to the right, else simply the nearest
-        best, bd = None, None
-        for idx, vi in enumerate(poly):
-            d = np.linalg.norm(pts[vi] - hp)
-            if pts[vi, 0] >= hp[0] - 1e-12 and (bd is None or d < bd) and _visible(hp, pts[vi], poly, pts, h):
-                best, bd = idx, d
+        # nearest first; the cut must not touch any other edge, not even at a
+        # vertex (rows of holes lined up put vertices right on it)
+        rest = [hh for hh in holes if hh is not h]
+        order = sorted(range(len(poly)), key=lambda q: (pts[poly[q], 0] < hp[0] - 1e-12,
+                                                         np.linalg.norm(pts[poly[q]] - hp)))
+        best = None
+        for idx in order:
+            if _visible(hp, pts[poly[idx]], poly, pts, h, rest):
+                best = idx
+                break
         if best is None:
             best = min(range(len(poly)), key=lambda q: np.linalg.norm(pts[poly[q]] - hp))
         ring = h[k:] + h[:k] + [h[k]]
@@ -1219,17 +1521,40 @@ def _segments_cross(p, q, a, b):
     return (d1 * d2 < 0) and (d3 * d4 < 0)
 
 
-def _visible(p, q, poly, pts, hole):
-    for ring in (poly, hole):
-        n = len(ring)
-        for i in range(n):
-            a, b = pts[ring[i]], pts[ring[(i + 1) % n]]
-            if _segments_cross(p, q, a, b):
-                return False
+def _visible(p, q, poly, pts, hole, others=()):
+    """The cut p-q meets no edge of the polygon, of the hole or of the
+    holes still to join, except at p and q themselves."""
+    p, q = np.asarray(p, float), np.asarray(q, float)
+    L = float(np.linalg.norm(q - p))
+    if L == 0:
+        return False
+    eps = 1e-9 * max(L, float(np.ptp(pts)))
+    for ring in (poly, hole, *others):
+        R = pts[np.asarray(ring)]
+        A, B = R, np.roll(R, -1, axis=0)
+        # edges touching p or q at an end are fine
+        at = (np.linalg.norm(A - p, axis=1) < eps) | (np.linalg.norm(B - p, axis=1) < eps) | \
+             (np.linalg.norm(A - q, axis=1) < eps) | (np.linalg.norm(B - q, axis=1) < eps)
+        d = q - p
+        e = B - A
+        den = d[0] * e[:, 1] - d[1] * e[:, 0]
+        w = A - p
+        with np.errstate(divide="ignore", invalid="ignore"):
+            t = (w[:, 0] * e[:, 1] - w[:, 1] * e[:, 0]) / den
+            s = (w[:, 0] * d[1] - w[:, 1] * d[0]) / den
+        hit = (np.abs(den) > 1e-30) & (t > 1e-9) & (t < 1 - 1e-9) & (s >= -1e-9) & (s <= 1 + 1e-9)
+        # a vertex lying on the cut (parallel edges, lined-up holes)
+        on = np.abs((A[:, 0] - p[0]) * d[1] - (A[:, 1] - p[1]) * d[0]) < eps * L
+        tt = ((A - p) @ d) / (L * L)
+        on &= (tt > 1e-9) & (tt < 1 - 1e-9)
+        if np.any(hit & ~at) or np.any(on):
+            return False
     return True
 
 
-def _earclip(poly, pts):
+def _earclip(poly, pts, cuts=False):
+    """Ear clipping. ``cuts``: the polygon holds holes joined by cuts (then
+    every ear's closing side is also checked against them)."""
     P = [(float(p[0]), float(p[1])) for p in pts]
     idx = list(poly)
     tris = []
@@ -1239,10 +1564,12 @@ def _earclip(poly, pts):
     def cross(a, b, c):
         return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
 
+    strict = False          # after a stall: points on an ear's sides do not block it
     while len(idx) > 3 and guard < 10 * n0 * n0 + 100:
         guard += 1
         n = len(idx)
         clipped = False
+        lim = 1e-12 * max(1.0, abs(_area2(np.array([P[j] for j in idx])))) if strict else -1e-15
         for i in range(n):
             ia, ib, ic = idx[i - 1], idx[i], idx[(i + 1) % n]
             a, b, c = P[ia], P[ib], P[ic]
@@ -1260,15 +1587,24 @@ def _earclip(poly, pts):
                     continue
                 if p == a or p == b or p == c:
                     continue
-                if (cross(a, b, p) >= -1e-15 and cross(b, c, p) >= -1e-15
-                        and cross(c, a, p) >= -1e-15):
+                if (cross(a, b, p) >= lim and cross(b, c, p) >= lim
+                        and cross(c, a, p) >= lim):
                     ok = False
                     break
+            if ok and cuts and n > 4 and not _diagonal_inside(idx, i, P):
+                ok = False                    # across a cut to a hole
             if ok:
                 tris.append([ia, ib, ic])
                 del idx[i]
                 clipped = True
                 break
+        if clipped:
+            strict = False
+            continue
+        if not strict:                      # try again, points on the sides allowed
+            strict = True
+            continue
+        strict = False
         if not clipped:                     # degenerate: drop a flat vertex
             n = len(idx)
             k = min(range(n), key=lambda i: abs(cross(P[idx[i - 1]], P[idx[i]],
@@ -1280,6 +1616,34 @@ def _earclip(poly, pts):
     if len(idx) == 3 and cross(P[idx[0]], P[idx[1]], P[idx[2]]) > 1e-18:
         tris.append(list(idx))
     return tris
+
+
+def _diagonal_inside(idx, i, P):
+    """The ear's closing side (from the vertex before i to the one after)
+    crosses no side of what is left of the polygon. Holes are joined to the
+    outline by cuts that run there and back on the same line; an ear can
+    hold no vertex (the far end of a cut is a copy of one of its corners)
+    and still step over the cut, which this catches."""
+    n = len(idx)
+    a, c = P[idx[i - 1]], P[idx[(i + 1) % n]]
+    Q = np.array([P[j] for j in idx])
+    A, B = Q, np.roll(Q, -1, axis=0)
+    # proper crossings with sides not ending at a or c
+    d = (c[0] - a[0], c[1] - a[1])
+    e = B - A
+    den = d[0] * e[:, 1] - d[1] * e[:, 0]
+    w0, w1 = A[:, 0] - a[0], A[:, 1] - a[1]
+    ok = np.abs(den) > 1e-30
+    with np.errstate(divide="ignore", invalid="ignore"):
+        t = (w0 * e[:, 1] - w1 * e[:, 0]) / den
+        u = (w0 * d[1] - w1 * d[0]) / den
+    touch = ((np.abs(A[:, 0] - a[0]) + np.abs(A[:, 1] - a[1]) == 0) |
+             (np.abs(B[:, 0] - a[0]) + np.abs(B[:, 1] - a[1]) == 0) |
+             (np.abs(A[:, 0] - c[0]) + np.abs(A[:, 1] - c[1]) == 0) |
+             (np.abs(B[:, 0] - c[0]) + np.abs(B[:, 1] - c[1]) == 0))
+    if np.any(ok & ~touch & (t > 1e-12) & (t < 1 - 1e-12) & (u > 1e-12) & (u < 1 - 1e-12)):
+        return False
+    return True
 
 
 def _incircle(a, b, c, d):
@@ -1361,6 +1725,9 @@ def _refine(pts, tris, S, tol, max_angle, boundary=None, max_points=6000):
 
     for i in range(nb):                          # boundary points: exact on S
         cache[i] = S.point(*P[i])
+    # a torus is cut open along both its circles: its two copies of a seam
+    # must keep the same points, which the angle rule would not respect
+    no_angle = isinstance(S, _Torus) or getattr(S, "closed_v", False)
     queue = list(range(len(T)))
     while queue and len(P) < max_points:
         ti = queue.pop()
@@ -1371,8 +1738,24 @@ def _refine(pts, tris, S, tol, max_angle, boundary=None, max_points=6000):
             continue
         g = ((pa[0] + pb[0] + pc[0]) / 3, (pa[1] + pb[1] + pc[1]) / 3)
         chord = (S3(a) + S3(b) + S3(c)) / 3
-        if np.linalg.norm(S.point(*g) - chord) <= tol:
-            continue
+        pg = S.point(*g)
+        if np.linalg.norm(pg - chord) <= tol:
+            # close enough, unless the facet leans more than max_angle off
+            # the surface (small radii: a ball of 1.5 mm at 0.2 mm would
+            # be a few flat facets)
+            if not max_angle or len(P) > 1500 or no_angle:   # (budget: thin tubes)
+                continue
+            A3, B3, C3 = S3(a), S3(b), S3(c)
+            n = np.cross(B3 - A3, C3 - A3)
+            ln = float(np.linalg.norm(n))
+            edge = max(np.linalg.norm(B3 - A3), np.linalg.norm(C3 - B3), np.linalg.norm(A3 - C3))
+            if ln == 0 or edge < tol:
+                continue
+            # the facet against the surface at its corners
+            worst = min(abs(float(n @ S.normal(X, P[k]))) / ln
+                        for X, k in ((A3, a), (B3, b), (C3, c)))
+            if worst >= math.cos(max_angle):
+                continue
         k = len(P)
         P.append(g)
         unregister(ti)
