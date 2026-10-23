@@ -135,6 +135,8 @@ def _absorb(faces, cap, V, tol):
         for a, b in edges:
             und[(min(a, b), max(a, b))] = und.get((min(a, b), max(a, b)), 0) + 1
         bnd = [(a, b) for a, b in edges if und[(min(a, b), max(a, b))] == 1]
+        if not bnd:                      # cap is the face itself
+            return False
         nxt = {}
         for a, b in bnd:
             if a in nxt:
@@ -152,6 +154,19 @@ def _absorb(faces, cap, V, tol):
         faces[fi] = [loop]
         return True
     return False
+
+
+def _flat_sheet_border(cap, loops, V, tol):
+    """True when every loop sharing an edge with ``cap`` lies in its plane."""
+    nc = newell(V[cap])
+    if np.linalg.norm(nc) == 0:
+        return False
+    nc = nc / np.linalg.norm(nc)
+    ce = {(min(a, b), max(a, b)) for a, b in zip(cap, cap[1:] + cap[:1])}
+    touching = [l for l in loops
+                if ce.intersection((min(a, b), max(a, b)) for a, b in zip(l, l[1:] + l[:1]))]
+    return bool(touching) and all(
+        np.abs((V[l] - V[cap[0]]) @ nc).max() <= tol for l in touching)
 
 
 def _repair(welded, verts, tol, notes):
@@ -180,7 +195,13 @@ def _repair(welded, verts, tol, notes):
     out = [list(loops) for loops in welded]
     for (fi, li), l in zip(owner, flat[:n0]):
         out[fi][li] = l
-    for cap in flat[n0:]:                # fold a cap into its coplanar neighbour
+    # a planar "hole" whose neighbouring faces all lie in its own plane is
+    # the open border of a flat sheet (a lone face, a flat panel of several
+    # faces): capping it would glue a face back to back and fake a
+    # zero-volume solid, so the sheet stays open
+    caps = [c for c in flat[n0:] if not _flat_sheet_border(c, flat[:n0], V, tol)]
+    nc -= len(flat) - n0 - len(caps)
+    for cap in caps:                # fold a cap into its coplanar neighbour
         if not _absorb(out, cap, V, tol):
             out.append([cap])
     if nt:

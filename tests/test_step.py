@@ -149,6 +149,19 @@ def test_repair_caps_a_missing_planar_face():
     assert any("capped" in n for n in rep["notes"])
 
 
+def test_repair_leaves_a_lone_face_open():
+    # issue #3: one open face (and a flat sheet of two) used to crash
+    # with repair_tol, or would have been glued back to back into a fake
+    # zero-volume solid; it must stay an open shell, as without repair
+    sq = lambda x0: Face([(x0, 0, 0), (x0 + .01, 0, 0), (x0 + .01, .01, 0), (x0, .01, 0)])
+    for faces in ([sq(0)], [sq(0), sq(.01)]):
+        for rt in (None, 1e-5):
+            _, rep = write_step([Part("Sheet", faces)], repair_tol=rt)
+            sh = rep["parts"][0]["shells"]
+            assert len(sh) == 1 and not sh[0]["closed"], (len(faces), rt, sh)
+            assert sh[0]["faces"] == len(faces)
+
+
 if __name__ == "__main__":
     for k, f in list(globals().items()):
         if k.startswith("test_"):

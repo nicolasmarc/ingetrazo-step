@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.1 — 2026-10-24
+- **Cylinders cut at an angle** (#2): a cylinder ending on a plane that is not square to its axis
+  (mitred tube corners, angled pipe ends, slanted rods) is now written as one
+  `CYLINDRICAL_SURFACE` bounded by an exact `ELLIPSE` arc, shared with the plane face, instead of
+  staying faceted with "oblique border". Exact volume (closed form on the ellipse); checked against
+  closed-form volumes and against an independent kernel (OpenCascade: valid solids, same volume).
+  Only a plane within about 3° of the axis is still refused.
+- **Lone open face with repair on** (#3): a part made of one open face, or of a flat sheet of
+  faces, no longer crashes the repair step (IndexError in `_absorb`); it stays an open shell, as
+  without repair, instead of being capped back to back into a zero-volume solid.
+
 ## 0.4.0 — 2026-10-18
 - **Import STEP**: Extensions ▸ Import STEP…, the panel's Import… button, or opening a
   `.stp` / `.step` in IngeTrazo (file opener). One group per part, named and coloured, placed

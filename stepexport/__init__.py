@@ -9,7 +9,7 @@ meshed to a tolerance) and ``stepimport`` (parts -> IngeTrazo groups).
 ``surfaces`` + ``brep`` (V2: cylinders), ``collect`` (scene -> parts).
 The IngeTrazo UI (``panel``) is loaded lazily by ``setup``.
 """
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 
 
 def setup(app):          # pragma: no cover - UI, needs IngeTrazo

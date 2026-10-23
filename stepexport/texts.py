@@ -60,8 +60,8 @@ TEXTS = {
         "reasons": {
             "open border": "bord ouvert", "non-simple border": "contour non simple",
             "open border loop": "contour ouvert",
-            "oblique border (cut not perpendicular to the axis)":
-                "bord oblique (coupe non perpendiculaire à l'axe)",
+            "border on a plane almost parallel to the axis":
+                "bord sur un plan presque parallèle à l'axe",
             "touches another cylinder": "contact avec un autre cylindre",
             "no seam edge": "pas d'arête de couture",
             "unsupported topology": "topologie non gérée",

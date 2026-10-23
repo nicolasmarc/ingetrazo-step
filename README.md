@@ -12,8 +12,9 @@ GPL-3.0-or-later. Pure Python + numpy, nothing to install. Answers the roadmap i
 - content: whole visible model, or selection only — one solid per group/component, named after it;
 - unit (mm / cm / m), face colours, author;
 - **Recognise cylinders**: faceted drill holes, rods, tubes, rounds and fillets become true
-  `CYLINDRICAL_SURFACE` faces with `CIRCLE` edges (from IngeTrazo's soft edges, then from geometry
-  for seams flatter than 20°);
+  `CYLINDRICAL_SURFACE` faces with `CIRCLE` edges, or `ELLIPSE` edges where a plane cuts them at an
+  angle (mitred tube corners, angled pipe ends) — from IngeTrazo's soft edges, then from geometry
+  for seams flatter than 20°;
 - **Simplify curved surfaces** (optional, tolerance in mm): neighbouring facets within the tolerance
   of one plane are merged — finely sampled curves stop shading as hundreds of slivers. Only the
   file is simplified, never the model;

@@ -1,5 +1,5 @@
 """ISO 10303-21 writer: B-rep solids (AP214 geometry subset) with planar
-faces and, in V2, cylindrical faces bounded by lines and circles.
+faces and, in V2, cylindrical faces bounded by lines, circles and ellipses.
 
 Every part is its own PRODUCT, named after the part, with its own
 ADVANCED_BREP_SHAPE_REPRESENTATION; several parts hang under an assembly
@@ -186,12 +186,18 @@ def write_step(parts, path=None, scale=1000.0, unit="mm", author="",
                         vec = E.ref(f"VECTOR('',{direction(d / np.linalg.norm(d))},{_real(ln)})")
                         geo = E.ref(f"LINE('',{point(p0)},{vec})")
                         same = True
-                    else:
+                    elif e["curve"][0] == "circle":
                         _, c, ax, r, same = e["curve"]
                         ref = _unit(np.asarray(verts[a]) - c)
                         pl = E.ref(f"AXIS2_PLACEMENT_3D('',{point(c)},"
                                    f"{direction(ax)},{direction(ref)})")
                         geo = E.ref(f"CIRCLE('',{pl},{_real(r * scale)})")
+                    else:                     # cylinder cut at an angle
+                        _, c, ax, major, r1, r2, same = e["curve"]
+                        pl = E.ref(f"AXIS2_PLACEMENT_3D('',{point(c)},"
+                                   f"{direction(ax)},{direction(major)})")
+                        geo = E.ref(f"ELLIPSE('',{pl},{_real(r1 * scale)},"
+                                    f"{_real(r2 * scale)})")
                     eref[k] = E.ref(f"EDGE_CURVE('',{vertex(a)},{vertex(b)},"
                                     f"{geo},{'.T.' if same else '.F.'})")
                 return eref[k]

@@ -167,11 +167,12 @@ def _edge_points(ents, ecref, sense, per_turn=4096):
     t, ca = _get(ents, cref)
     if t == "LINE":
         pts = [p, q]
-    elif t == "CIRCLE":
+    elif t in ("CIRCLE", "ELLIPSE"):
         c, z, x, y = _placement(ents, ca[1])
         r = float(ca[2])
-        a0 = math.atan2((p - c) @ y, (p - c) @ x)
-        a1 = math.atan2((q - c) @ y, (q - c) @ x)
+        r2 = float(ca[3]) if t == "ELLIPSE" else r
+        a0 = math.atan2((p - c) @ y / r2, (p - c) @ x / r)
+        a1 = math.atan2((q - c) @ y / r2, (q - c) @ x / r)
         closed = v1[1] == v2[1]
         d = (a1 - a0) % (2 * math.pi)
         if same == ".T.":
@@ -179,7 +180,7 @@ def _edge_points(ents, ecref, sense, per_turn=4096):
         else:
             d = -2 * math.pi if (closed or d < 1e-12) else d - 2 * math.pi
         n = max(8, int(abs(d) / (2 * math.pi) * per_turn))
-        pts = [c + r * (math.cos(a0 + d * k / n) * x + math.sin(a0 + d * k / n) * y)
+        pts = [c + r * math.cos(a0 + d * k / n) * x + r2 * math.sin(a0 + d * k / n) * y
                for k in range(n + 1)]
     else:
         raise StepError(f"unsupported curve {t}")

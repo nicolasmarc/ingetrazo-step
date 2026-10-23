@@ -137,21 +137,96 @@ def test_dodecagon_is_not_a_cylinder_in_geometry_mode():
     assert s[0]["faces"] == 14 and "CYLINDRICAL_SURFACE" not in s[0]["surfaces"]
 
 
-def test_oblique_cut_is_rejected_and_stays_faceted():
+def slanted(profile, holes=(), k=(0.0, 0.0), z0=0.0, kb=(0.0, 0.0), z1=0.1):
+    """Prism over a 2D profile whose top is the plane z = z1 + kx x + ky y
+    and bottom z = z0 + kbx x + kby y (cuts at an angle), with the soft
+    seams IngeTrazo gives a pushed profile."""
+    zt = lambda x, y: z1 + k[0] * x + k[1] * y
+    zb = lambda x, y: z0 + kb[0] * x + kb[1] * y
+    outer = ccw(list(profile))
+    holes = [ccw(list(h))[::-1] for h in holes]
+    faces = [Face([(x, y, zt(x, y)) for x, y in outer], [[(x, y, zt(x, y)) for x, y in h] for h in holes]),
+             Face([(x, y, zb(x, y)) for x, y in outer[::-1]], [[(x, y, zb(x, y)) for x, y in h[::-1]] for h in holes])]
+    softs = []
+    for loop in [outer] + holes:
+        n = len(loop)
+        for i in range(n):
+            (ax, ay), (bx, by) = loop[i], loop[(i + 1) % n]
+            faces.append(Face([(ax, ay, zb(ax, ay)), (bx, by, zb(bx, by)),
+                               (bx, by, zt(bx, by)), (ax, ay, zt(ax, ay))]))
+            c = loop[(i + 2) % n]
+            u = np.subtract((bx, by), (ax, ay)); w = np.subtract(c, (bx, by))
+            if float(u @ w / np.linalg.norm(u) / np.linalg.norm(w)) > SOFT_COS:
+                softs.append(((bx, by, zb(bx, by)), (bx, by, zt(bx, by))))
+    return faces, softs
+
+
+def test_oblique_cut_becomes_a_cylinder_with_an_ellipse():
+    # issue #2: a rod whose top is cut at an angle (here ~56 deg off square)
+    # is one cylinder bounded by an ELLIPSE; the exact volume is pi r^2 times
+    # the mean height, the tilt averaging out over the disc
     r, n = .02, 24
-    ring = circle(0, 0, r, n)
-    f = [Face([(x, y, 0.0) for x, y in ring[::-1]]),
-         Face([(x, y, .1 + .03 * x / r) for x, y in ring])]          # slanted top
-    soft = []
-    for i in range(n):
-        (ax, ay), (bx, by) = ring[i], ring[(i + 1) % n]
-        za, zb = .1 + .03 * ax / r, .1 + .03 * bx / r
-        f.append(Face([(ax, ay, 0), (bx, by, 0), (bx, by, zb), (ax, ay, za)]))
-        soft.append(((bx, by, 0), (bx, by, zb)))
-    _, rep, s = run(Part("Biseau", f, soft_edges=soft))
+    f, soft = slanted(circle(0, 0, r, n), k=(1.5, 0.0))
+    text, rep, s = run(Part("Biseau", f, soft_edges=soft))
     sh = rep["parts"][0]["shells"][0]
-    assert sh["cylinders"] == [] and "oblique" in sh["rejected"][0]["reason"]
-    assert s[0]["faces"] == 26 and s[0]["kind"] == "solid" and s[0]["edge_ok"]
+    assert sh["rejected"] == [] and len(sh["cylinders"]) == 1, sh["rejected"]
+    assert s[0]["kind"] == "solid" and s[0]["edge_ok"]
+    assert s[0]["surfaces"] == {"PLANE": 2, "CYLINDRICAL_SURFACE": 1}
+    assert text.count("ELLIPSE(") == 1 and text.count("CIRCLE(") == 1
+    exact = math.pi * 20 ** 2 * 100
+    assert close(sh["volume"], exact, 1e-9), sh["volume"]
+    assert close(s[0]["volume"], exact, 1e-5), s[0]["volume"]
+
+
+def test_pipe_cut_at_both_ends_and_an_angled_hole():
+    # a tube with both ends cut at different angles (two ellipses per end):
+    # 4 elliptical edges, exact volume = ring area x mean length
+    f, soft = slanted(circle(0, 0, .03, 32), [circle(0, 0, .025, 32)],
+                      k=(0.6, 0.2), kb=(-0.4, 0.0), z1=.2)
+    text, rep, s = run(Part("Tube biais", f, soft_edges=soft))
+    sh = rep["parts"][0]["shells"][0]
+    assert sh["rejected"] == [] and len(sh["cylinders"]) == 2
+    assert s[0]["surfaces"] == {"PLANE": 2, "CYLINDRICAL_SURFACE": 2} and s[0]["edge_ok"]
+    assert text.count("ELLIPSE(") == 4
+    exact = math.pi * (30 ** 2 - 25 ** 2) * 200
+    assert close(sh["volume"], exact, 1e-9) and close(s[0]["volume"], exact, 1e-5)
+
+
+def test_mitred_rounded_tube_corner():
+    # a rounded-rectangle tube (outer radius 10, wall 3) mitred at 45 deg:
+    # the 8 corner fillets become cylinders bounded by elliptic arcs at the
+    # mitre and circle arcs at the square end
+    W, H, ro, t, n = .1, .06, .01, .003, 8
+
+    def rrect(w, h, rr, off):
+        pts = []
+        for cx, cy, a0 in [(w - rr, rr, -math.pi / 2), (w - rr, h - rr, 0),
+                           (rr, h - rr, math.pi / 2), (rr, rr, math.pi)]:
+            pts += circle(cx + off, cy + off, rr, n, a0, a0 + math.pi / 2, closed=False)
+        return pts
+    outer = rrect(W, H, ro, 0.0)
+    inner = rrect(W - 2 * t, H - 2 * t, ro - t, t)
+    f, soft = slanted(outer, [inner], k=(1.0, 0.0), z1=.15)
+    text, rep, s = run(Part("Onglet", f, soft_edges=soft))
+    sh = rep["parts"][0]["shells"][0]
+    assert sh["rejected"] == [] and len(sh["cylinders"]) == 8, sh["rejected"]
+    assert s[0]["kind"] == "solid" and s[0]["edge_ok"]
+    assert text.count("ELLIPSE(") == 8 and text.count("CIRCLE(") == 8
+    area = (W * H - (4 - math.pi) * ro ** 2) - ((W - 2 * t) * (H - 2 * t) - (4 - math.pi) * (ro - t) ** 2)
+    cx = W / 2                                  # mean height: z1 + 1.0 * x over the section
+    exact = area * (.15 + cx) * 1e9             # the ring is symmetric about x = W/2
+    assert close(sh["volume"], exact, 1e-9), (sh["volume"], exact)
+    assert close(s[0]["volume"], exact, 1e-5)
+
+
+def test_cut_almost_along_the_axis_stays_faceted():
+    # a plane within 3 deg of the axis would need a huge ellipse: refused
+    r, n = .02, 24
+    f, soft = slanted(circle(0, 0, r, n), k=(25.0, 0.0), z1=1.0)
+    _, rep, s = run(Part("Long biseau", f, soft_edges=soft))
+    sh = rep["parts"][0]["shells"][0]
+    assert sh["cylinders"] == [] and "parallel" in sh["rejected"][0]["reason"]
+    assert s[0]["kind"] == "solid" and s[0]["edge_ok"]
 
 
 def test_tube_two_cylinders_and_annular_caps():
