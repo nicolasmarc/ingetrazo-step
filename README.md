@@ -1,6 +1,7 @@
 # STEP export and import — IngeTrazo extension
 
 ![IngeTrazo to STEP](screenshots/stepexport.png)
+![STEP import: a stair from CAD, imported in IngeTrazo as named groups](screenshots/stepimport.png)
 
 Clean-room STEP (ISO 10303-21, AP214) writer for [IngeTrazo](https://github.com/ingelibre/ingetrazo),
 GPL-3.0-or-later. Pure Python + numpy, nothing to install. Answers the roadmap item
