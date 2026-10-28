@@ -33,6 +33,9 @@ def _window():
     os.chdir(SRC)
     plugins = Path(tempfile.mkdtemp()) / "plugins"
     plugins.mkdir()
+    # a private data folder: an interrupted run must not leave an autosave
+    # that makes the next window ask «Recover it?» and wait for an answer
+    os.environ["XDG_DATA_HOME"] = str(plugins.parent / "data")
     shutil.copytree(REPO / "stepexport", plugins / "stepexport",
                     ignore=shutil.ignore_patterns("__pycache__"))
     from PySide6.QtWidgets import QApplication
@@ -104,11 +107,49 @@ def test_dxf_conversion_shows_its_result():
     doc.saveas(d / "esc.dxf")
     panel = _s["panel"]
     panel.dxf_show.setChecked(True)
+    panel.fmt.setCurrentIndex(1)            # IGES chosen: a .stp is still STEP
     panel.convert_dxf(str(d / "esc.dxf"), str(d / "esc.stp"))
+    assert (d / "esc.stp").read_text().startswith("ISO-10303-21;")
     assert (d / "esc.stp").is_file()
     assert sorted(g.name for g in scene.groups[n0:]) == ["Marche1", "Marche2"]
     win._on_undo()
     assert len(scene.groups) == n0
+
+
+def test_iges_from_the_panel():
+    if SKIP:
+        print("skip:", SKIP); return
+    win = _window()
+    from PySide6.QtGui import QVector3D
+    scene = win.viewport.scene
+    n0 = len(scene.groups)
+    assert _s["panel"].import_file(str(HERE / "data" / "assemblage.step"))
+    panel = _s["panel"]
+    panel.what.setCurrentIndex(1)       # the 3 parts just imported (selected)
+    d = Path(tempfile.mkdtemp())
+    for idx, name in ((1, "solides.igs"), (2, "surfaces.igs")):
+        panel.fmt.setCurrentIndex(idx)
+        panel.run(str(d / name))
+        text = (d / name).read_text()
+        assert text.splitlines()[-1][72] == "T"
+        types = {int(l[:8]) for l in text.splitlines() if l[72] == "D"}
+        assert (186 in types) == (idx == 1)
+        assert str(d / name) in panel.out.toPlainText()
+    # the choice is remembered, and the dialog asks for an .igs
+    panel.fmt.setCurrentIndex(1)
+    assert panel._format()[2][0] == ".igs"
+    panel.fmt.setCurrentIndex(0)
+    assert panel._format()[2][0] == ".stp"
+    win._on_undo()
+    assert len(scene.groups) == n0
+    try:
+        sys.path.insert(0, str(HERE))
+        import occt_check
+    except ImportError:
+        return
+    if occt_check.available():
+        s = occt_check.read_iges((d / "solides.igs").read_text())
+        assert s["solids"] == 3 and s["valid"]
 
 
 def teardown_module(module=None):

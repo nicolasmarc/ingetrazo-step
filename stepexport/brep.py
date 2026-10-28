@@ -174,12 +174,27 @@ def build_brep(verts, faces, regions=(), tol=1e-5):
             for p, q in _directed(loop):
                 de2f[(p, q)] = fi
     accepted, rejected = list(regions), []
+    # A region's plan only looks at its own faces and at which faces across
+    # its border belong to other regions. When one region is rejected, only
+    # its neighbours can plan differently: the others keep their plan
+    # instead of being planned again (a large model rejected hundreds of
+    # regions one by one, each time re-planning thousands).
+    nbr = defaultdict(set)
+    for (p, q), fi in de2f.items():
+        g = de2f.get((q, p))
+        if g is not None and g != fi:
+            nbr[fi].add(g)
+    cache = {}                                   # id(region) -> plan
     while True:
-        region_of = {fi: ri for ri, R in enumerate(accepted) for fi in R["faces"]}
+        region_of = {fi: id(R) for R in accepted for fi in R["faces"]}
         plans, bad = [], None
         for ri, R in enumerate(accepted):
-            others = {fi: r for fi, r in region_of.items() if r != ri}
-            plan = _plan_region(R, faces, de2f, others, V, tol)
+            plan = cache.get(id(R))
+            if plan is None:
+                rid = id(R)
+                others = {fi: r for fi, r in region_of.items() if r != rid}
+                plan = _plan_region(R, faces, de2f, others, V, tol)
+                cache[rid] = plan
             if isinstance(plan, str):
                 bad = (ri, plan)
                 break
@@ -187,6 +202,11 @@ def build_brep(verts, faces, regions=(), tol=1e-5):
         if bad is None:
             break
         R = accepted.pop(bad[0])
+        cache.pop(id(R), None)
+        touched = {g for fi in R["faces"] for g in nbr[fi]}
+        for S in accepted:
+            if touched.intersection(S["faces"]):
+                cache.pop(id(S), None)
         rejected.append({"radius": R["cyl"].radius, "facets": len(R["faces"]),
                          "reason": bad[1]})
 

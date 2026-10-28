@@ -3,15 +3,20 @@ language when it is French; any other language falls back to English."""
 
 TEXTS = {
     "en": {
-        "title": "STEP export", "menu": "Export to STEP…",
-        "menu_tip": "Export groups as editable STEP (.stp) solids, with recognised cylinders.",
+        "title": "STEP / IGES export", "menu": "Export to STEP / IGES…",
+        "menu_tip": "Export groups as editable STEP (.stp) or IGES (.igs) solids, with recognised cylinders.",
+        "format": "Format", "fmt_step": "STEP (.stp)", "fmt_iges": "IGES, solids (.igs)",
+        "fmt_iges_surf": "IGES, surfaces (.igs)",
+        "fmt_tip": "IGES solids: one B-rep solid per part (IGES 5.3, entity 186). "
+                   "IGES surfaces: one trimmed surface per face, the oldest form, for "
+                   "programs that do not read IGES solids; they sew the faces back.",
         "content": "Content", "all": "Whole visible model", "selection": "Selection only",
         "unit": "Unit", "cyl": "Recognise cylinders (V2)",
         "cyl_tip": "Faceted holes, rods, rounds and fillets become true cylinders in the file.",
         "detect": "Detection", "soft": "Soft edges (recommended)",
         "geometry": "Geometry only (angle ≤ 25°)", "colors": "Face colours",
         "author": "Author", "analyse": "Analyse", "export": "Export…",
-        "dxf": "Convert a DXF to STEP…", "dxf_open": "DXF to convert",
+        "dxf": "Convert a DXF to STEP / IGES…", "dxf_open": "DXF to convert",
         "dxf_show": "Show the result in the model",
         "dxf_show_tip": "After converting, the .stp is read back into the model: you see exactly "
                         "what was written (one group per solid, selected; Ctrl+Z removes them).",
@@ -27,6 +32,7 @@ TEXTS = {
         "placeholder": "The export report shows here.",
         "nothing": "Nothing to export: empty model, or no group selected.",
         "failed": "Export failed:", "written": "File written:", "dialog": "Export to STEP",
+        "dialog_iges": "Export to IGES", "default_iges": "model.igs",
         "default_name": "model.stp", "loose": "Loose geometry",
         # report
         "summary": "{s} solid(s), {o} open surface(s), {f} face(s), {c} cylinder(s)",
@@ -42,15 +48,20 @@ TEXTS = {
         "import_none": "No solid found in this file.",
     },
     "fr": {
-        "title": "Export STEP", "menu": "Exporter en STEP…",
-        "menu_tip": "Exporte les groupes en solides STEP (.stp) éditables, avec les cylindres reconnus.",
+        "title": "Export STEP / IGES", "menu": "Exporter en STEP / IGES…",
+        "menu_tip": "Exporte les groupes en solides STEP (.stp) ou IGES (.igs) éditables, avec les cylindres reconnus.",
+        "format": "Format", "fmt_step": "STEP (.stp)", "fmt_iges": "IGES, solides (.igs)",
+        "fmt_iges_surf": "IGES, surfaces (.igs)",
+        "fmt_tip": "IGES solides : un solide B-rep par pièce (IGES 5.3, entité 186). "
+                   "IGES surfaces : une surface détourée par face, la forme la plus ancienne, pour "
+                   "les logiciels qui ne lisent pas les solides IGES ; ils recousent les faces.",
         "content": "Contenu", "all": "Tout le modèle visible", "selection": "Sélection seulement",
         "unit": "Unité", "cyl": "Reconnaître les cylindres (V2)",
         "cyl_tip": "Trous, tiges, arrondis et congés à facettes deviennent de vrais cylindres dans le fichier.",
         "detect": "Repérage", "soft": "Arêtes adoucies (recommandé)",
         "geometry": "Géométrie seule (angle ≤ 25°)", "colors": "Couleurs des faces",
         "author": "Auteur", "analyse": "Analyser", "export": "Exporter…",
-        "dxf": "Convertir un DXF en STEP…", "dxf_open": "DXF à convertir",
+        "dxf": "Convertir un DXF en STEP / IGES…", "dxf_open": "DXF à convertir",
         "dxf_show": "Afficher le résultat dans le modèle",
         "dxf_show_tip": "Après la conversion, le .stp est relu dans le modèle : on voit exactement "
                         "ce qui a été écrit (un groupe par solide, sélectionnés ; Ctrl+Z les retire).",
@@ -66,6 +77,7 @@ TEXTS = {
         "placeholder": "Le rapport d'export s'affiche ici.",
         "nothing": "Rien à exporter : modèle vide, ou aucun groupe sélectionné.",
         "failed": "Échec de l'export :", "written": "Fichier écrit :", "dialog": "Exporter en STEP",
+        "dialog_iges": "Exporter en IGES", "default_iges": "modele.igs",
         "default_name": "modele.stp", "loose": "Géométrie libre",
         "summary": "{s} solide(s), {o} surface(s) ouverte(s), {f} face(s), {c} cylindre(s)",
         "solid": "solide", "open": "OUVERT", "faces": "{n} faces", "instead": " (au lieu de {n})",
