@@ -5,6 +5,10 @@
   layer of 3DFACEs: every tread, baluster and rail in one group) no longer comes out as
   non-manifold lumps where parts meet edge to edge: the shell split stops at edges carried by
   more than two faces.
+- **Bodies that touch themselves along an edge are valid solids.** Where a DXF welded two
+  parts into one body that meets itself on an edge (a rail butting a post: four faces on one
+  edge), the faces are paired around that edge and the edge's vertices are doubled for the
+  second pair: the same closed solid, now a valid B-rep instead of an open shell.
 - **One CAD component per solid** when a group holds several separate solids, named
   "Group (1)", "Group (2)"…, instead of one component holding them all.
 - **Rods in 15 or more facets are found without soft edges**: geometry detection now accepts

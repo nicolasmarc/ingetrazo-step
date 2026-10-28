@@ -7,6 +7,7 @@ oriented so that outer loops are counter-clockwise seen from OUTSIDE the
 solid (holes clockwise).
 """
 from collections import defaultdict, deque
+import math
 import numpy as np
 
 PLANAR_TOL = 1e-6          # relative to face size
@@ -301,22 +302,9 @@ def _directed_edges(face):
             yield loop[k], loop[(k + 1) % n]
 
 
-def split_components(faces):
-    """Connected components of faces through shared (undirected) edges.
-
-    An edge carried by more than two faces is where separate parts touch
-    (two balusters on a rail edge, two treads meeting edge to edge in one
-    layer of a DXF): the walk does not cross it, so each part comes out as
-    its own shell instead of one non-manifold lump."""
-    by_edge = defaultdict(list)
-    for fi, f in enumerate(faces):
-        for a, b in _directed_edges(f):
-            by_edge[(min(a, b), max(a, b))].append(fi)
-    for k, fs in list(by_edge.items()):
-        if len(fs) > 2:
-            by_edge[k] = []
+def _walk(face_ids, faces, neighbours):
     seen, comps = set(), []
-    for s in range(len(faces)):
+    for s in face_ids:
         if s in seen:
             continue
         comp, q = [], deque([s])
@@ -324,13 +312,106 @@ def split_components(faces):
         while q:
             f = q.popleft()
             comp.append(f)
-            for a, b in _directed_edges(faces[f]):
-                for g in by_edge[(min(a, b), max(a, b))]:
-                    if g not in seen:
-                        seen.add(g)
-                        q.append(g)
+            for g in neighbours(f):
+                if g not in seen:
+                    seen.add(g)
+                    q.append(g)
         comps.append(sorted(comp))
     return comps
+
+
+def _radial_order(edge, fids, faces, V):
+    """Faces around an edge, sorted by the angle of the way each one leaves
+    the edge (the direction from the edge to the face's centroid)."""
+    a, b = V[edge[0]], V[edge[1]]
+    t = b - a
+    t = t / np.linalg.norm(t)
+    u = np.cross(t, [1.0, 0, 0] if abs(t[0]) < 0.9 else [0, 1.0, 0])
+    u /= np.linalg.norm(u)
+    w = np.cross(t, u)
+    ang = []
+    for f in fids:
+        c = V[faces[f][0]].mean(axis=0) - a
+        d = c - (c @ t) * t
+        ang.append((math.atan2(d @ w, d @ u), f))
+    return [f for _, f in sorted(ang)]
+
+
+def _pair_pinches(comp, faces, V, max_edges=10):
+    """Split a component held together at edges carried by four (or six...)
+    of its faces — two parts butting along an edge, a rail against a post —
+    into closed shells. Around such an edge the faces alternate between
+    material and empty wedges; each face pairs with one angular neighbour,
+    and of the two ways to pair them the one that closes the most shells is
+    kept (every combination is tried, the edges are few)."""
+    import itertools
+    uses = defaultdict(list)
+    for f in comp:
+        for x, y in _directed_edges(faces[f]):
+            uses[(min(x, y), max(x, y))].append(f)
+    pinch = [e for e, fs in uses.items() if len(fs) > 2]
+    if not pinch or len(pinch) > max_edges or any(len(uses[e]) % 2 for e in pinch):
+        return [comp]
+    orders = [_radial_order(e, uses[e], faces, V) for e in pinch]
+    best, best_score = [comp], (-1, 0)
+    for choice in itertools.product((0, 1), repeat=len(pinch)):
+        partner = defaultdict(set)
+        for e, order, off in zip(pinch, orders, choice):
+            n = len(order)
+            for k in range(off, off + n, 2):
+                f, g = order[k % n], order[(k + 1) % n]
+                partner[(e, f)].add(g)
+                partner[(e, g)].add(f)
+
+        def neighbours(f):
+            for x, y in _directed_edges(faces[f]):
+                e = (min(x, y), max(x, y))
+                if len(uses[e]) > 2:
+                    yield from partner[(e, f)]
+                else:
+                    yield from (g for g in uses[e] if g != f)
+        subs = _walk(comp, faces, neighbours)
+        closed = 0
+        for sub in subs:
+            cnt = defaultdict(int)
+            for f in sub:
+                for x, y in _directed_edges(faces[f]):
+                    cnt[(min(x, y), max(x, y))] += 1
+            closed += all(v == 2 for v in cnt.values())
+        score = (closed, len(subs))
+        if score > best_score:
+            best, best_score = subs, score
+    return best
+
+
+def split_components(faces, verts=None):
+    """Connected components of faces through shared (undirected) edges.
+
+    An edge carried by more than two faces is where separate parts touch
+    (two balusters on a rail edge, two treads meeting edge to edge in one
+    layer of a DXF): the walk does not cross it, so each part comes out as
+    its own shell instead of one non-manifold lump. A component still held
+    together at such an edge (two parts butting along it) is split there by
+    pairing its faces around the edge (``verts`` needed)."""
+    by_edge = defaultdict(list)
+    for fi, f in enumerate(faces):
+        for a, b in _directed_edges(f):
+            by_edge[(min(a, b), max(a, b))].append(fi)
+    multi = {k for k, fs in by_edge.items() if len(fs) > 2}
+
+    def neighbours(f):
+        for a, b in _directed_edges(faces[f]):
+            k = (min(a, b), max(a, b))
+            if k not in multi:
+                yield from by_edge[k]
+    comps = _walk(range(len(faces)), faces, neighbours)
+    if verts is None or not multi:
+        return comps
+    V = np.asarray(verts, float)
+    out = []
+    for comp in comps:
+        out.extend(_pair_pinches(comp, faces, V))
+    return out
 
 
 def _flip(face):
@@ -373,6 +454,70 @@ def orient_component(faces, comp):
     return out, problems
 
 
+def _unpinch(comp, faces, verts, max_edges=10):
+    """A shell that touches itself along an edge (four of its faces on one
+    edge: a rail butting a post in a DXF where both were welded into one
+    body) is a closed solid, but not a manifold one. Pair the faces around
+    each such edge (try both ways, keep the one that leaves a closed,
+    consistently oriented shell) and give the second pair its own copy of
+    the edge's vertices: the solid is unchanged, its B-rep becomes valid.
+    Returns (faces of comp, possibly with new vertex ids, appended to
+    ``verts``) or ``None`` when nothing works."""
+    import itertools
+    uses = defaultdict(list)
+    for f in comp:
+        for x, y in _directed_edges(faces[f]):
+            uses[(min(x, y), max(x, y))].append(f)
+    pinch = [e for e, fs in uses.items() if len(fs) > 2]
+    if not pinch or len(pinch) > max_edges or any(len(uses[e]) % 2 for e in pinch):
+        return None
+    V = np.asarray(verts, float)
+    orders = [_radial_order(e, uses[e], faces, V) for e in pinch]
+    pinch_set = set(pinch)
+    touched = sorted({v for e in pinch for v in e})
+    for choice in itertools.product((0, 1), repeat=len(pinch)):
+        partner = defaultdict(set)
+        for e, order, off in zip(pinch, orders, choice):
+            n = len(order)
+            for k in range(off, off + n, 2):
+                f, g = order[k % n], order[(k + 1) % n]
+                partner[(e, f)].add(g)
+                partner[(e, g)].add(f)
+        new = {f: [list(l) for l in faces[f]] for f in comp}
+        added = []
+        for v in touched:
+            around = [f for f in comp if any(v in l for l in faces[f])]
+
+            def nb(f, v=v, around=around):
+                for x, y in _directed_edges(faces[f]):
+                    if v not in (x, y):
+                        continue
+                    e = (min(x, y), max(x, y))
+                    if e in pinch_set:
+                        yield from partner[(e, f)]
+                    else:
+                        yield from (g for g in uses[e] if g != f and g in around)
+            groups = _walk(around, faces, nb)
+            for grp in groups[1:]:
+                nid = len(verts) + len(added)
+                added.append(verts[v])
+                for f in grp:
+                    new[f] = [[nid if i == v else i for i in l] for l in new[f]]
+        fl = [new[f] for f in comp]
+        cnt = defaultdict(int)
+        for f in fl:
+            for x, y in _directed_edges(f):
+                cnt[(min(x, y), max(x, y))] += 1
+        if not all(c == 2 for c in cnt.values()):
+            continue
+        _, problems = orient_component(fl, list(range(len(fl))))
+        if problems:
+            continue
+        verts.extend(added)
+        return fl
+    return None
+
+
 def is_closed(faces):
     c = defaultdict(int)
     for f in faces:
@@ -396,8 +541,12 @@ def analyse(part, weld_tol=1e-6, repair_tol=None):
     """-> (verts, shells, notes). Each shell is a dict (see module doc)."""
     verts, faces, notes = prepare_faces(part, weld_tol, repair_tol)
     shells = []
-    for comp in split_components(faces):
+    for comp in split_components(faces, verts):
         fs, problems = orient_component(faces, comp)
+        if problems:
+            fixed = _unpinch(comp, faces, verts)
+            if fixed is not None:
+                fs, problems = orient_component(fixed, list(range(len(fixed))))
         closed = is_closed(fs) and not problems
         vol = signed_volume(verts, fs) if closed else 0.0
         if closed and vol < 0:

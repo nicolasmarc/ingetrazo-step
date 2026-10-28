@@ -175,6 +175,39 @@ def test_parts_touching_on_an_edge_are_separate_solids():
     assert "Lot (1)" in names and "Lot (2)" in names
 
 
+def _voxels(cells):
+    """Boundary quads (outward) of a union of unit cubes."""
+    cells = set(cells)
+    faces = []
+    for (x, y, z) in cells:
+        for ax in range(3):
+            for sgn in (-1, 1):
+                nb = [x, y, z]
+                nb[ax] += sgn
+                if tuple(nb) in cells:
+                    continue
+                o = [x, y, z]
+                if sgn > 0:
+                    o[ax] += 1
+                u, v = [0, 0, 0], [0, 0, 0]
+                u[(ax + 1) % 3] = 1
+                v[(ax + 2) % 3] = 1
+                q = [tuple(o), tuple(a + b for a, b in zip(o, u)),
+                     tuple(a + b + c for a, b, c in zip(o, u, v)), tuple(a + c for a, c in zip(o, v))]
+                faces.append(Face(q if sgn > 0 else q[::-1]))
+    return faces
+
+
+def test_a_body_touching_itself_on_an_edge_is_a_valid_solid():
+    # two cubes meeting only along a vertical edge, joined by a bridge on
+    # top: one closed body, but four of its faces share that edge (a rail
+    # butting a post in a welded DXF). It must come out as one valid solid.
+    fs = _voxels([(0, 0, 0), (1, 1, 0), (0, 0, 1), (1, 0, 1), (1, 1, 1)])
+    text, rep, s = roundtrip([Part("Pince", fs)], scale=1.0, unit="m", repair_tol=1e-6)
+    assert len(s) == 1 and s[0]["kind"] == "solid" and s[0]["edge_ok"], s
+    assert abs(s[0]["volume"] - 5.0) < 1e-9
+
+
 if __name__ == "__main__":
     for k, f in list(globals().items()):
         if k.startswith("test_"):
