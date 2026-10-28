@@ -67,7 +67,7 @@ def _perp(n):
 
 def write_step(parts, path=None, scale=1000.0, unit="mm", author="",
                filename="model.stp", weld_tol=1e-6, cylinders=False,
-               cyl_mode="soft", cyl_tol=1e-5, angle_max=20.0, repair_tol=None,
+               cyl_mode="soft", cyl_tol=1e-5, angle_max=25.0, repair_tol=None,
                simplify_tol=None):
     """Write ``parts`` (list of :class:`model.Part`, coordinates in metres) to
     STEP text. ``scale`` converts input units to the declared ``unit``.
@@ -128,7 +128,7 @@ def write_step(parts, path=None, scale=1000.0, unit="mm", author="",
         report["notes"].extend(f"{part.name}: {n}" for n in sorted(set(notes)))
         soft = soft_index_pairs(part, verts, weld_tol) if cylinders else None
         info = {"name": part.name, "shells": []}
-        items = []
+        items, item_names = [], []
         for si, sh in enumerate(shells):
             name = part.name if len(shells) == 1 else f"{part.name} ({si + 1})"
             regions = []
@@ -234,6 +234,7 @@ def write_step(parts, path=None, scale=1000.0, unit="mm", author="",
                 solid = E.ref(f"SHELL_BASED_SURFACE_MODEL({_str(name)},({shell}))")
                 report["shells"] += 1
             items.append(solid)
+            item_names.append(name)
             if part.color:
                 r, g, b = part.color[:3]
                 c = E.ref(f"COLOUR_RGB('',{_real(r)},{_real(g)},{_real(b)})")
@@ -245,7 +246,13 @@ def write_step(parts, path=None, scale=1000.0, unit="mm", author="",
                 psa = E.ref(f"PRESENTATION_STYLE_ASSIGNMENT(({ssu}))")
                 styled.append(E.ref(f"STYLED_ITEM('color',({psa}),{solid})"))
         report["parts"].append(info)
-        if items:
+        # a group holding several separate solids (a DXF layer of loose
+        # faces: every baluster, tread and rail of a stair in one group) is
+        # several parts: each body becomes its own component in CAD,
+        # "Group (1)", "Group (2)"..., instead of one component of 180 bodies
+        if len(items) > 1:
+            part_items.extend((nm, [it]) for nm, it in zip(item_names, items))
+        elif items:
             part_items.append((part.name, items))
 
     # --- products: one per part, under an assembly when there are several --

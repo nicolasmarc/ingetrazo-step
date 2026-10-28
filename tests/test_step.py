@@ -162,6 +162,19 @@ def test_repair_leaves_a_lone_face_open():
             assert sh[0]["faces"] == len(faces)
 
 
+def test_parts_touching_on_an_edge_are_separate_solids():
+    # two boxes of one group sharing only an edge (a DXF layer of loose
+    # faces): two closed solids, two components, not one non-manifold lump
+    a = box_faces(0, 0, 0, 1, 1, 1)
+    b = box_faces(1, 1, 0, 2, 2, 1)             # touches a along x=1, y=1
+    text, rep, s = roundtrip([Part("Lot", a + b)], scale=1.0, unit="m", repair_tol=1e-6)
+    assert [x["kind"] for x in s] == ["solid", "solid"]
+    assert all(abs(x["volume"] - 1.0) < 1e-9 for x in s)
+    import re
+    names = re.findall(r"=PRODUCT\('([^']*)'", text)
+    assert "Lot (1)" in names and "Lot (2)" in names
+
+
 if __name__ == "__main__":
     for k, f in list(globals().items()):
         if k.startswith("test_"):

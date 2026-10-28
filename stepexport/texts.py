@@ -9,7 +9,7 @@ TEXTS = {
         "unit": "Unit", "cyl": "Recognise cylinders (V2)",
         "cyl_tip": "Faceted holes, rods, rounds and fillets become true cylinders in the file.",
         "detect": "Detection", "soft": "Soft edges (recommended)",
-        "geometry": "Geometry only (angle ≤ 20°)", "colors": "Face colours",
+        "geometry": "Geometry only (angle ≤ 25°)", "colors": "Face colours",
         "author": "Author", "analyse": "Analyse", "export": "Export…",
         "simplify": "Simplify curved surfaces", "tolerance": "Tolerance",
         "simplify_tip": "Merges neighbouring facets lying within the tolerance of one plane "
@@ -38,7 +38,7 @@ TEXTS = {
         "unit": "Unité", "cyl": "Reconnaître les cylindres (V2)",
         "cyl_tip": "Trous, tiges, arrondis et congés à facettes deviennent de vrais cylindres dans le fichier.",
         "detect": "Repérage", "soft": "Arêtes adoucies (recommandé)",
-        "geometry": "Géométrie seule (angle ≤ 20°)", "colors": "Couleurs des faces",
+        "geometry": "Géométrie seule (angle ≤ 25°)", "colors": "Couleurs des faces",
         "author": "Auteur", "analyse": "Analyser", "export": "Exporter…",
         "simplify": "Simplifier les surfaces courbes", "tolerance": "Tolérance",
         "simplify_tip": "Fusionne les facettes voisines qui tiennent dans un même plan à la "

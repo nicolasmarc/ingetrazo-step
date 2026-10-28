@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.2 — unreleased
+- **Parts that touch on an edge are separate solids.** A group holding many loose parts (a DXF
+  layer of 3DFACEs: every tread, baluster and rail in one group) no longer comes out as
+  non-manifold lumps where parts meet edge to edge: the shell split stops at edges carried by
+  more than two faces.
+- **One CAD component per solid** when a group holds several separate solids, named
+  "Group (1)", "Group (2)"…, instead of one component holding them all.
+- **Rods in 15 or more facets are found without soft edges**: geometry detection now accepts
+  seams up to 25° (was 20°), so a 16- or 17-facet DXF baluster becomes a true cylinder. A
+  12-facet prism (30°) still stays a prism.
+
 ## 0.4.1 — 2026-10-24
 - **Cylinders cut at an angle** (#2): a cylinder ending on a plane that is not square to its axis
   (mitred tube corners, angled pipe ends, slanted rods) is now written as one

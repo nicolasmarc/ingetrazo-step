@@ -131,6 +131,13 @@ def test_geometry_mode_without_soft_edges():
     assert s[0]["surfaces"].get("CYLINDRICAL_SURFACE") == 1
 
 
+def test_seventeen_facet_rod_without_soft_edges_is_a_cylinder():
+    # a DXF baluster: 17 facets (21.2 deg each), no soft edges at all
+    f, _ = extrude(circle(0, 0, .008, 17), z1=.8, soft=False)
+    _, rep, s = run(Part("Balustre", f))
+    assert s[0]["surfaces"] == {"PLANE": 2, "CYLINDRICAL_SURFACE": 1}
+
+
 def test_dodecagon_is_not_a_cylinder_in_geometry_mode():
     f, _ = extrude(circle(0, 0, .02, 12), z1=.1, soft=False)   # 30 deg steps
     _, rep, s = run(Part("Prisme 12", f), cyl_mode="geometry")

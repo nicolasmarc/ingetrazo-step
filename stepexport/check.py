@@ -302,11 +302,19 @@ def _directed_edges(face):
 
 
 def split_components(faces):
-    """Connected components of faces through shared (undirected) edges."""
+    """Connected components of faces through shared (undirected) edges.
+
+    An edge carried by more than two faces is where separate parts touch
+    (two balusters on a rail edge, two treads meeting edge to edge in one
+    layer of a DXF): the walk does not cross it, so each part comes out as
+    its own shell instead of one non-manifold lump."""
     by_edge = defaultdict(list)
     for fi, f in enumerate(faces):
         for a, b in _directed_edges(f):
             by_edge[(min(a, b), max(a, b))].append(fi)
+    for k, fs in list(by_edge.items()):
+        if len(fs) > 2:
+            by_edge[k] = []
     seen, comps = set(), []
     for s in range(len(faces)):
         if s in seen:

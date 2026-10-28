@@ -109,7 +109,7 @@ def _directed(face):
 
 
 def find_cylinders(verts, faces, soft_pairs=None, mode="soft", tol=1e-5,
-                   angle_max=20.0, min_faces=3):
+                   angle_max=25.0, min_faces=3):
     """-> list of regions ``{"faces": [ids], "cyl": Cylinder, "sense": +1|-1}``
     (+1: material inside the cylinder, a rod or a convex round; -1: a hole or
     a concave fillet). ``faces`` are oriented loops of vertex indices."""
