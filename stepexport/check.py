@@ -537,11 +537,60 @@ def signed_volume(verts, faces):
     return float(tot)
 
 
+def _lend_shared_faces(faces, comps, verts):
+    """Two parts that share a whole face (a beam and the block it rests on,
+    cut along one slanted plane) arrive with that face once: it belongs to
+    both, so after the split each part is open by exactly that face, and
+    the face itself (one polygon or a few triangles) is left as a small
+    open sheet. Lend the sheet: an open component whose border contains a
+    sheet's whole border gets the sheet's faces too (the writer orients the
+    copy); a sheet lent away is dropped as a shell of its own."""
+    def border(comp):
+        cnt = defaultdict(int)
+        for f in comp:
+            for a, b in _directed_edges(faces[f]):
+                cnt[(min(a, b), max(a, b))] += 1
+        return {e for e, c in cnt.items() if c == 1}
+    V = np.asarray(verts, float)
+
+    def sheet(comp):                     # all its faces in one plane
+        P = V[sorted({i for f in comp for l in faces[f] for i in l})]
+        if len(P) < 3:
+            return False
+        c = P.mean(axis=0)
+        n = np.linalg.svd(P - c, full_matrices=False)[2][-1]
+        span = float(np.linalg.norm(P - c, axis=1).max())
+        return float(np.abs((P - c) @ n).max()) <= 1e-9 * max(span, 1.0) + 1e-9
+    borders = [border(c) for c in comps]
+    sheets = [len(c) <= 8 and bool(b) and sheet(c) for c, b in zip(comps, borders)]
+    lent = set()
+    out = []
+    for i, comp in enumerate(comps):
+        bi = borders[i]
+        if not bi:
+            out.append(comp)
+            continue
+        extra = []
+        for j, other in enumerate(comps):
+            bj = borders[j]
+            if j == i or not sheets[j] or sheets[i]:
+                continue
+            if bj <= bi:
+                extra.append(j)
+        cover = set().union(*(borders[j] for j in extra)) if extra else set()
+        if extra and cover == bi:
+            lent.update(extra)
+            comp = sorted(set(comp).union(*(comps[j] for j in extra)))
+        out.append(comp)
+    return [c for k, c in enumerate(out) if k not in lent]
+
+
 def analyse(part, weld_tol=1e-6, repair_tol=None):
     """-> (verts, shells, notes). Each shell is a dict (see module doc)."""
     verts, faces, notes = prepare_faces(part, weld_tol, repair_tol)
     shells = []
-    for comp in split_components(faces, verts):
+    comps = _lend_shared_faces(faces, split_components(faces, verts), verts)
+    for comp in comps:
         fs, problems = orient_component(faces, comp)
         if problems:
             fixed = _unpinch(comp, faces, verts)

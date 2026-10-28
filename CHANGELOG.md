@@ -1,6 +1,14 @@
 # Changelog
 
 ## 0.4.2 — unreleased
+- **Convert a DXF to STEP… (exact sizes).** A new button reads the DXF itself in double
+  precision and writes the STEP, without going through the IngeTrazo model (which keeps 7
+  digits: a 70 mm gap two metres out reads 69.99995 mm). 3DFACE, SOLID/TRACE, POLYFACE,
+  polygon meshes and MESH; one named part per block, assembly blocks opened up into their
+  parts, loose faces by layer; units from the header or guessed from the size. Sizes come out
+  exact to the file's digits.
+- **Parts sharing a whole face** (a beam resting on a block along one slanted plane, the face
+  written once) each get that face: two closed solids instead of open pieces.
 - **Round sizes stay round.** IngeTrazo keeps positions in single precision, so a 44 mm tread
   came out 44.00003 mm and a 16 mm baluster 15.99999 mm. Coordinates are now snapped to a
   0.001 mm grid on export, fitted cylinders get round radii and exact axes, and their corners

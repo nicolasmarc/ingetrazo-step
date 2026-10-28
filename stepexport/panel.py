@@ -87,6 +87,9 @@ class StepPanel(QWidget):
         row.addWidget(self.btn_export)
         row.addWidget(self.btn_import)
         lay.addLayout(row)
+        self.btn_dxf = QPushButton(T["dxf"])
+        self.btn_dxf.setToolTip(T["dxf_tip"])
+        lay.addWidget(self.btn_dxf)
         self.out = QPlainTextEdit()
         self.out.setReadOnly(True)
         self.out.setPlaceholderText(T["placeholder"])
@@ -94,6 +97,7 @@ class StepPanel(QWidget):
         self.btn_check.clicked.connect(lambda: self.run(None))
         self.btn_export.clicked.connect(self.export)
         self.btn_import.clicked.connect(self.import_dialog)
+        self.btn_dxf.clicked.connect(self.dxf_dialog)
         self.cyl.toggled.connect(self.cyl_mode.setEnabled)
         self._load()
 
@@ -132,6 +136,59 @@ class StepPanel(QWidget):
             path += ".stp"
         self.settings.setValue("last_dir", os.path.dirname(path))
         self.run(path)
+
+    def dxf_dialog(self):
+        last = self.settings.value("last_dxf_dir", os.path.expanduser("~"))
+        src, _ = QFileDialog.getOpenFileName(self, self.T["dxf_open"], last,
+                                             "DXF (*.dxf *.DXF)")
+        if not src:
+            return
+        self.settings.setValue("last_dxf_dir", os.path.dirname(src))
+        base = os.path.splitext(os.path.basename(src))[0] + ".stp"
+        path, _ = QFileDialog.getSaveFileName(
+            self, self.T["dialog"], os.path.join(os.path.dirname(src), base),
+            "STEP (*.stp *.step)")
+        if not path:
+            return
+        if not path.lower().endswith((".stp", ".step")):
+            path += ".stp"
+        self.convert_dxf(src, path)
+
+    def convert_dxf(self, src, path):
+        """DXF straight to STEP in double precision (see :mod:`dxfdirect`):
+        the open model is not touched."""
+        import time
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QApplication
+        from .dxfdirect import read_parts
+        self._save()
+        unit = self.unit.currentText()
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        t0 = time.time()
+        try:
+            parts, info = read_parts(src)
+            if not self.colors.isChecked():
+                for p in parts:
+                    p.color = None
+            _, rep = write_step(
+                parts, path=path, scale=dict(UNITS)[unit], unit=unit,
+                author=self.author.text(), filename=os.path.basename(path),
+                cylinders=self.cyl.isChecked(), cyl_mode="soft",
+                repair_tol=1e-5,
+                simplify_tol=(self.simp_tol.value() / 1000.0
+                              if self.simplify.isChecked() else None),
+                snap=None)                # the DXF's own digits, untouched
+        except Exception as exc:             # report, never crash the app
+            QApplication.restoreOverrideCursor()
+            QMessageBox.warning(self, "STEP", f"{self.T['failed']}\n{type(exc).__name__}: {exc}")
+            return
+        QApplication.restoreOverrideCursor()
+        head = self.T["dxf_done"].format(
+            f=os.path.basename(src), t=time.time() - t0,
+            u=self.T["dxf_units_declared"] if info["declared"] else
+            self.T["dxf_units_guessed"].format(u="mm" if info["scale"] == 0.001 else "m"))
+        self.out.setPlainText(f"{self.T['written']} {path}\n{head}\n\n"
+                              + format_report(rep, unit, self.lang))
 
     def import_dialog(self):
         last = self.settings.value("last_import_dir", os.path.expanduser("~"))

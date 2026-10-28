@@ -74,7 +74,15 @@ def _snap_part(part, q):
     CAD program shows them in every measurement; back on the micrometre grid
     the file says 44 and 16 again."""
     from .model import Face, Part
-    r = lambda p: tuple(round(c / q) * q for c in p)          # noqa: E731
+
+    def snap1(c):
+        g = round(c / q) * q
+        # only values that ARE grid values blurred by single precision move
+        # (float32 rounds to 6e-8 relative); a coordinate the
+        # designer did not put on the grid (a slanted edge's end) keeps its
+        # own value instead of being shifted by up to half a grid step
+        return g if abs(c - g) <= max(6e-8 * abs(c), 1e-9) else c
+    r = lambda p: tuple(snap1(c) for c in p)                   # noqa: E731
     faces = [Face([r(p) for p in f.outer], [[r(p) for p in h] for h in f.holes],
                   getattr(f, "src", None)) for f in part.faces]
     soft = ([(r(a), r(b)) for a, b in part.soft_edges]
@@ -93,7 +101,11 @@ def _snap_cylinder(cyl, q):
     ref = cyl.ref - (cyl.ref @ a) * a
     ref = np.where(np.abs(ref) < 1e-9, 0.0, ref)
     ref = ref / np.linalg.norm(ref)
-    c = np.round(np.asarray(cyl.center, float) / q) * q
+    c = np.asarray(cyl.center, float)
+    g = np.round(c / q) * q
+    # the axis point moves only when it is a grid value blurred by the
+    # fit; an axis the designer placed off the grid stays where it is
+    c = np.where(np.abs(c - g) <= np.maximum(6e-8 * np.abs(c), 1e-9), g, c)
     return Cylinder(c, a, max(round(cyl.radius / q) * q, q), ref)
 
 

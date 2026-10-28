@@ -19,6 +19,8 @@ GPL-3.0-or-later. Pure Python + numpy, nothing to install. Answers the roadmap i
   of one plane are merged — finely sampled curves stop shading as hundreds of slivers. Only the
   file is simplified, never the model;
 - **Analyse** shows the report without writing; **Export…** writes the `.stp`.
+- **Convert a DXF to STEP…** reads a DXF directly in double precision (exact sizes, one solid
+  per part, one named part per block) and writes the `.stp`, without changing the open model.
 
 Before writing, each part is checked and lightly repaired: welded, oriented, stacked duplicate faces
 and stray overlapping faces dropped, T-junctions stitched, small planar holes capped, warped faces

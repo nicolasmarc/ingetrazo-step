@@ -11,6 +11,12 @@ TEXTS = {
         "detect": "Detection", "soft": "Soft edges (recommended)",
         "geometry": "Geometry only (angle ≤ 25°)", "colors": "Face colours",
         "author": "Author", "analyse": "Analyse", "export": "Export…",
+        "dxf": "Convert a DXF to STEP…", "dxf_open": "DXF to convert",
+        "dxf_tip": "Reads the DXF itself in double precision and writes the STEP: exact sizes, "
+                   "one solid per part. The open model is not changed.",
+        "dxf_done": "{f} read directly (double precision) in {t:.1f} s; {u}.",
+        "dxf_units_declared": "units from the file header",
+        "dxf_units_guessed": "no units in the file: taken as {u} from the model size",
         "simplify": "Simplify curved surfaces", "tolerance": "Tolerance",
         "simplify_tip": "Merges neighbouring facets lying within the tolerance of one plane "
                         "(finely sampled curves). The model itself is not changed.",
@@ -40,6 +46,12 @@ TEXTS = {
         "detect": "Repérage", "soft": "Arêtes adoucies (recommandé)",
         "geometry": "Géométrie seule (angle ≤ 25°)", "colors": "Couleurs des faces",
         "author": "Auteur", "analyse": "Analyser", "export": "Exporter…",
+        "dxf": "Convertir un DXF en STEP…", "dxf_open": "DXF à convertir",
+        "dxf_tip": "Lit le DXF lui-même en double précision et écrit le STEP : cotes exactes, "
+                   "un solide par pièce. Le modèle ouvert n'est pas modifié.",
+        "dxf_done": "{f} lu directement (double précision) en {t:.1f} s ; {u}.",
+        "dxf_units_declared": "unités lues dans l'en-tête du fichier",
+        "dxf_units_guessed": "pas d'unités dans le fichier : {u} d'après la taille du modèle",
         "simplify": "Simplifier les surfaces courbes", "tolerance": "Tolérance",
         "simplify_tip": "Fusionne les facettes voisines qui tiennent dans un même plan à la "
                         "tolérance près (courbes trop finement découpées). Le modèle n'est pas modifié.",
