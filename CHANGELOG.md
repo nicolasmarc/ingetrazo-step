@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.2 — unreleased
+## 0.4.2 — 2026-10-28
 - **Convert a DXF to STEP… (exact sizes).** A new button reads the DXF itself in double
   precision and writes the STEP, without going through the IngeTrazo model (which keeps 7
   digits: a 70 mm gap two metres out reads 69.99995 mm). 3DFACE, SOLID/TRACE, POLYFACE,
