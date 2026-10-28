@@ -80,6 +80,37 @@ def test_a_stp_opens_like_a_document():
     assert len(scene.groups) == n0 + 1
 
 
+def test_dxf_conversion_shows_its_result():
+    if SKIP:
+        print("skip:", SKIP); return
+    try:
+        import ezdxf
+    except ImportError:
+        print("skip: no ezdxf"); return
+    win = _window()
+    scene = win.viewport.scene
+    n0 = len(scene.groups)
+    doc = ezdxf.new("R2010"); doc.header["$INSUNITS"] = 4
+    for k, name in enumerate(("Marche1", "Marche2")):
+        b = doc.blocks.new(name)
+        pf = b.add_polyface()
+        p = [(0, 0, 0), (900, 0, 0), (900, 250, 0), (0, 250, 0),
+             (0, 0, 40), (900, 0, 40), (900, 250, 40), (0, 250, 40)]
+        pf.append_faces([[p[i] for i in f] for f in
+                         [(0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5),
+                          (2, 3, 7, 6), (3, 0, 4, 7)]])
+        doc.modelspace().add_blockref(name, (0, 250 * k, 200 * k))
+    d = Path(tempfile.mkdtemp())
+    doc.saveas(d / "esc.dxf")
+    panel = _s["panel"]
+    panel.dxf_show.setChecked(True)
+    panel.convert_dxf(str(d / "esc.dxf"), str(d / "esc.stp"))
+    assert (d / "esc.stp").is_file()
+    assert sorted(g.name for g in scene.groups[n0:]) == ["Marche1", "Marche2"]
+    win._on_undo()
+    assert len(scene.groups) == n0
+
+
 def teardown_module(module=None):
     win = _s.pop("win", None)
     if win is not None:

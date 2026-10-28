@@ -90,6 +90,9 @@ class StepPanel(QWidget):
         self.btn_dxf = QPushButton(T["dxf"])
         self.btn_dxf.setToolTip(T["dxf_tip"])
         lay.addWidget(self.btn_dxf)
+        self.dxf_show = QCheckBox(T["dxf_show"])
+        self.dxf_show.setToolTip(T["dxf_show_tip"])
+        lay.addWidget(self.dxf_show)
         self.out = QPlainTextEdit()
         self.out.setReadOnly(True)
         self.out.setPlaceholderText(T["placeholder"])
@@ -112,6 +115,7 @@ class StepPanel(QWidget):
         self.simplify.setChecked(s.value("simplify", "false") == "true")
         self.simp_tol.setValue(float(s.value("simplify_tol", 0.1)))
         self.simp_tol.setEnabled(self.simplify.isChecked())
+        self.dxf_show.setChecked(s.value("dxf_show", "true") == "true")
         self.cyl_mode.setEnabled(self.cyl.isChecked())
 
     def _save(self):
@@ -123,6 +127,7 @@ class StepPanel(QWidget):
         s.setValue("author", self.author.text())
         s.setValue("simplify", "true" if self.simplify.isChecked() else "false")
         s.setValue("simplify_tol", self.simp_tol.value())
+        s.setValue("dxf_show", "true" if self.dxf_show.isChecked() else "false")
 
     # ---- actions ---------------------------------------------------------
     def export(self):
@@ -187,8 +192,13 @@ class StepPanel(QWidget):
             f=os.path.basename(src), t=time.time() - t0,
             u=self.T["dxf_units_declared"] if info["declared"] else
             self.T["dxf_units_guessed"].format(u="mm" if info["scale"] == 0.001 else "m"))
-        self.out.setPlainText(f"{self.T['written']} {path}\n{head}\n\n"
-                              + format_report(rep, unit, self.lang))
+        report = f"{self.T['written']} {path}\n{head}\n\n" + format_report(rep, unit, self.lang)
+        if self.dxf_show.isChecked() and self.import_file(path):
+            # what was written, read back from the .stp itself: the solids
+            # as the CAD program will get them, one group each, selected,
+            # one Ctrl+Z to take them away again
+            report = self.T["dxf_shown"] + "\n\n" + report
+        self.out.setPlainText(report)
 
     def import_dialog(self):
         last = self.settings.value("last_import_dir", os.path.expanduser("~"))

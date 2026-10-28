@@ -6,7 +6,8 @@
   digits: a 70 mm gap two metres out reads 69.99995 mm). 3DFACE, SOLID/TRACE, POLYFACE,
   polygon meshes and MESH; one named part per block, assembly blocks opened up into their
   parts, loose faces by layer; units from the header or guessed from the size. Sizes come out
-  exact to the file's digits.
+  exact to the file's digits. "Show the result in the model" (on by default) reads the written
+  .stp back into the model: one group per solid, selected, one Ctrl+Z to remove them.
 - **Parts sharing a whole face** (a beam resting on a block along one slanted plane, the face
   written once) each get that face: two closed solids instead of open pieces.
 - **Round sizes stay round.** IngeTrazo keeps positions in single precision, so a 44 mm tread

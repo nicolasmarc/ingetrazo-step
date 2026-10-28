@@ -12,6 +12,10 @@ TEXTS = {
         "geometry": "Geometry only (angle ≤ 25°)", "colors": "Face colours",
         "author": "Author", "analyse": "Analyse", "export": "Export…",
         "dxf": "Convert a DXF to STEP…", "dxf_open": "DXF to convert",
+        "dxf_show": "Show the result in the model",
+        "dxf_show_tip": "After converting, the .stp is read back into the model: you see exactly "
+                        "what was written (one group per solid, selected; Ctrl+Z removes them).",
+        "dxf_shown": "Result shown in the model: one group per solid, selected (Ctrl+Z to remove).",
         "dxf_tip": "Reads the DXF itself in double precision and writes the STEP: exact sizes, "
                    "one solid per part. The open model is not changed.",
         "dxf_done": "{f} read directly (double precision) in {t:.1f} s; {u}.",
@@ -47,6 +51,10 @@ TEXTS = {
         "geometry": "Géométrie seule (angle ≤ 25°)", "colors": "Couleurs des faces",
         "author": "Auteur", "analyse": "Analyser", "export": "Exporter…",
         "dxf": "Convertir un DXF en STEP…", "dxf_open": "DXF à convertir",
+        "dxf_show": "Afficher le résultat dans le modèle",
+        "dxf_show_tip": "Après la conversion, le .stp est relu dans le modèle : on voit exactement "
+                        "ce qui a été écrit (un groupe par solide, sélectionnés ; Ctrl+Z les retire).",
+        "dxf_shown": "Résultat affiché dans le modèle : un groupe par solide, sélectionnés (Ctrl+Z pour les retirer).",
         "dxf_tip": "Lit le DXF lui-même en double précision et écrit le STEP : cotes exactes, "
                    "un solide par pièce. Le modèle ouvert n'est pas modifié.",
         "dxf_done": "{f} lu directement (double précision) en {t:.1f} s ; {u}.",
