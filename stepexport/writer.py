@@ -65,10 +65,42 @@ def _perp(n):
     return x / np.linalg.norm(x)
 
 
+def _snap_part(part, q):
+    """Round every coordinate to the grid ``q`` (metres; 1e-6 = 0.001 mm).
+
+    IngeTrazo keeps positions in single precision: a tread drawn 44 mm thick
+    at two metres from the origin comes back 44.00003 mm, a 16 mm baluster
+    15.99999 mm. Those few hundred-thousandths are noise, not design, and a
+    CAD program shows them in every measurement; back on the micrometre grid
+    the file says 44 and 16 again."""
+    from .model import Face, Part
+    r = lambda p: tuple(round(c / q) * q for c in p)          # noqa: E731
+    faces = [Face([r(p) for p in f.outer], [[r(p) for p in h] for h in f.holes],
+                  getattr(f, "src", None)) for f in part.faces]
+    soft = ([(r(a), r(b)) for a, b in part.soft_edges]
+            if part.soft_edges is not None else None)
+    return Part(part.name, faces, part.color, soft)
+
+
+def _snap_cylinder(cyl, q):
+    """The fitted cylinder on the same grid: radius and axis point rounded,
+    an axis within 1e-9 of a world axis made exact. Its facets' corners
+    already sit on the grid, so the fit only differs from round values by
+    float noise."""
+    from .surfaces import Cylinder
+    a = np.where(np.abs(cyl.axis) < 1e-9, 0.0, cyl.axis)
+    a = a / np.linalg.norm(a)
+    ref = cyl.ref - (cyl.ref @ a) * a
+    ref = np.where(np.abs(ref) < 1e-9, 0.0, ref)
+    ref = ref / np.linalg.norm(ref)
+    c = np.round(np.asarray(cyl.center, float) / q) * q
+    return Cylinder(c, a, max(round(cyl.radius / q) * q, q), ref)
+
+
 def write_step(parts, path=None, scale=1000.0, unit="mm", author="",
                filename="model.stp", weld_tol=1e-6, cylinders=False,
                cyl_mode="soft", cyl_tol=1e-5, angle_max=25.0, repair_tol=None,
-               simplify_tol=None):
+               simplify_tol=None, snap=1e-6):
     """Write ``parts`` (list of :class:`model.Part`, coordinates in metres) to
     STEP text. ``scale`` converts input units to the declared ``unit``.
 
@@ -123,6 +155,8 @@ def write_step(parts, path=None, scale=1000.0, unit="mm", author="",
             dir_cache[k] = E.ref("DIRECTION('',(%s))" % ",".join(_real(c) for c in k))
         return dir_cache[k]
 
+    if snap:
+        parts = [_snap_part(p, snap) for p in parts]
     for part in parts:
         verts, shells, notes = analyse(part, weld_tol, repair_tol)
         report["notes"].extend(f"{part.name}: {n}" for n in sorted(set(notes)))
@@ -143,6 +177,19 @@ def write_step(parts, path=None, scale=1000.0, unit="mm", author="",
                                         tol=cyl_tol, angle_max=angle_max):
                     if not used.intersection(r["faces"]):
                         regions.append(r)
+            if snap:
+                for r in regions:
+                    r["cyl"] = cyl = _snap_cylinder(r["cyl"], snap)
+                    # its corners onto the round cylinder (they moved a few
+                    # tenths of a micrometre when snapped to the grid)
+                    for vi in {i for fi in r["faces"] for l in sh["faces"][fi] for i in l}:
+                        p = np.asarray(verts[vi], float)
+                        d = p - cyl.center
+                        h = d @ cyl.axis
+                        rad = d - h * cyl.axis
+                        n = np.linalg.norm(rad)
+                        if n > 0:
+                            verts[vi] = tuple(cyl.center + h * cyl.axis + rad * (cyl.radius / n))
             shell_faces = sh["faces"]
             simp = None
             if simplify_tol and sh["closed"]:

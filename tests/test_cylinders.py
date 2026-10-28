@@ -48,6 +48,7 @@ def extrude(outer, holes=(), z0=0.0, z1=0.1, soft=True):
 
 def run(part, **kw):
     kw.setdefault("cylinders", True)
+    kw.setdefault("snap", None)          # exact closed-form checks below
     text, rep = write_step([part], **kw)
     s = read_solids(text)
     return text, rep, s
@@ -261,6 +262,23 @@ def test_simplify_merges_a_finely_sampled_shallow_arc():
     assert s1[0]["faces"] < s0[0]["faces"] / 5, (s0[0]["faces"], s1[0]["faces"])
     assert abs(s1[0]["volume"] - s0[0]["volume"]) / s0[0]["volume"] < 1e-3
     assert any("merged" in n for n in rep1["notes"])
+
+
+def test_float32_noise_is_snapped_back_to_round_sizes():
+    # what IngeTrazo hands over: a 16 mm rod, 24 facets, and a 44 mm plate,
+    # far from the origin, every coordinate through single precision
+    f32 = lambda p: tuple(float(np.float32(c)) for c in p)          # noqa: E731
+    rod, soft = extrude(circle(1.7, -0.9, .008, 24), z1=.8)
+    rod = [Face([f32(p) for p in f.outer]) for f in rod]
+    soft = [(f32(a), f32(b)) for a, b in soft]
+    plate, _ = extrude([(1.2, -1.3), (1.9, -1.3), (1.9, -0.7), (1.2, -0.7)],
+                       z0=2.5, z1=2.544, soft=False)
+    plate = [Face([f32(p) for p in f.outer]) for f in plate]
+    text, rep, s = run(Part("Rod", rod, soft_edges=soft), snap=1e-6)
+    assert s[0]["radii"] == [8.0], s[0]["radii"]             # not 7.99999...
+    text, rep, s = run(Part("Plate", plate), snap=1e-6)
+    zs = sorted({round(p[2], 9) for l in s[0]["face_loops"] for lp in l for p in lp})
+    assert zs == [2500.0, 2544.0], zs                         # 44 mm, not 44.00003
 
 
 def test_v2_file_references_resolve():

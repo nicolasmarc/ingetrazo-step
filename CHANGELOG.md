@@ -1,6 +1,10 @@
 # Changelog
 
 ## 0.4.2 — unreleased
+- **Round sizes stay round.** IngeTrazo keeps positions in single precision, so a 44 mm tread
+  came out 44.00003 mm and a 16 mm baluster 15.99999 mm. Coordinates are now snapped to a
+  0.001 mm grid on export, fitted cylinders get round radii and exact axes, and their corners
+  are put back on the round cylinder: the file measures 44, 16, 40 mm in CAD.
 - **Parts that touch on an edge are separate solids.** A group holding many loose parts (a DXF
   layer of 3DFACEs: every tread, baluster and rail in one group) no longer comes out as
   non-manifold lumps where parts meet edge to edge: the shell split stops at edges carried by
