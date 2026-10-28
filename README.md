@@ -22,6 +22,15 @@ GPL-3.0-or-later. Pure Python + numpy, nothing to install. Answers the roadmap i
 - **Convert a DXF to STEP…** reads a DXF directly in double precision (exact sizes, one solid
   per part, one named part per block) and writes the `.stp`, without changing the open model.
 
+**Without IngeTrazo** — the same conversion from a command line, with any Python 3 that has
+`numpy` and `ezdxf` (`pip install numpy ezdxf`):
+
+    python path/to/stepexport Model.dxf            # Model.stp next to it
+    python path/to/stepexport FOLDER -o OUT        # every DXF of FOLDER
+    python path/to/stepexport --help               # unit, simplification, cylinders...
+
+Handy behind a right-click entry or a button of another CAD program.
+
 Before writing, each part is checked and lightly repaired: welded, oriented, stacked duplicate faces
 and stray overlapping faces dropped, T-junctions stitched, small planar holes capped, warped faces
 triangulated (strip faces rung by rung). Closed parts become `MANIFOLD_SOLID_BREP`; parts that still
