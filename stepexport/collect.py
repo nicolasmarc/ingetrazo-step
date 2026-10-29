@@ -15,12 +15,69 @@ def _xyz(p):
     return (float(p.x()), float(p.y()), float(p.z()))
 
 
-def _color(faces):
+_TEXTURE_RGB = {}
+
+
+def texture_rgb(path):
+    """Mean colour (r, g, b in 0..1) of a texture image, or None when it
+    cannot be read. Read once per file, from a 32 x 32 reduction: a CAD
+    program shows one colour per body, and the mean of the picture (beech
+    light brown, concrete grey) is closer to what the model shows than no
+    colour at all. Qt reads the image (present inside IngeTrazo)."""
+    if not path:
+        return None
+    if path in _TEXTURE_RGB:
+        return _TEXTURE_RGB[path]
+    rgb = None
+    try:
+        from PySide6.QtCore import Qt
+        from PySide6.QtGui import QImage
+        img = QImage(str(path))
+        if not img.isNull():
+            img = img.convertToFormat(QImage.Format_RGB888).scaled(
+                32, 32, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+            w, h, bpl = img.width(), img.height(), img.bytesPerLine()
+            raw = bytes(img.constBits())[:bpl * h]
+            tot, n = [0, 0, 0], 0
+            for y in range(h):
+                row = raw[y * bpl:y * bpl + 3 * w]
+                for k in range(3):
+                    tot[k] += sum(row[k::3])
+                n += w
+            if n:
+                rgb = tuple(round(t / n / 255.0, 4) for t in tot)
+    except Exception:                        # no Qt, unreadable file
+        rgb = None
+    _TEXTURE_RGB[path] = rgb
+    return rgb
+
+
+def _shown_rgb(attrs):
+    """A face's colour: its paint colour when it has one (a textured
+    material often carries one, chosen to stand for it), else the mean
+    colour of its texture."""
+    attrs = attrs or {}
+    c = attrs.get("color")
+    if c is not None and len(c) >= 3:
+        return tuple(round(float(x), 4) for x in c[:3])
+    tex = attrs.get("texture")
+    if isinstance(tex, dict) and tex.get("path"):
+        return texture_rgb(tex["path"])
+    return None
+
+
+def _color(faces, paint=None):
+    """The part's colour: the one most of its faces show. A face wearing
+    the default material takes the group's paint (``paint``), as in the
+    viewport."""
     cols = []
     for f in faces:
-        c = (getattr(f, "attrs", None) or {}).get("color")
-        if c is not None and len(c) >= 3:
-            cols.append(tuple(round(float(x), 4) for x in c[:3]))
+        attrs = getattr(f, "attrs", None) or {}
+        if paint and not (attrs.get("color") or attrs.get("texture")):
+            attrs = paint
+        rgb = _shown_rgb(attrs)
+        if rgb is not None:
+            cols.append(rgb)
     return Counter(cols).most_common(1)[0][0] if cols else None
 
 
@@ -91,9 +148,9 @@ def strip_triangles(face):
     return tris
 
 
-def faces_part(name, faces, edges=()):
+def faces_part(name, faces, edges=(), paint=None):
     """A Part from mesh faces (``vertices`` / ``holes`` positions) and the
-    soft edges among ``edges``."""
+    soft edges among ``edges``; ``paint``: the group's own material."""
     from .check import PLANAR_TOL, _is_planar
     faces = list(faces)
     out = []
@@ -113,7 +170,7 @@ def faces_part(name, faces, edges=()):
             continue
         out.append(Face(outer, holes))
     soft = [(_xyz(e.a), _xyz(e.b)) for e in edges if getattr(e, "soft", False)]
-    return Part(name, out, _color(faces), soft or None)
+    return Part(name, out, _color(faces, paint), soft or None)
 
 
 def collect_parts(scene, selection_only=False, world_mesh=None):
@@ -137,8 +194,10 @@ def collect_parts(scene, selection_only=False, world_mesh=None):
         mesh = world_mesh(g)
         if not mesh.faces:
             continue
+        paint = getattr(g, "material", None)
         parts.append(faces_part(unique(str(getattr(g, "name", "Groupe"))),
-                                mesh.faces, mesh.edges))
+                                mesh.faces, mesh.edges,
+                                paint if isinstance(paint, dict) else None))
     loose = getattr(scene, "loose_mesh", None)
     if loose is not None:
         fs = [f for f in loose.faces if visible(f)

@@ -11,6 +11,10 @@
 - **Faster on large models.** Cylinder recognition no longer re-plans every region each time it
   rejects one, only its neighbours: the 77 000-triangle fountain example exports in 41 s instead of
   129 s, the STEP file byte for byte the same.
+- **Colours of textured parts.** A part painted only with a picture (beech, concrete, water)
+  had no colour in the STEP or IGES, and CAD made one up. It now gets the picture's mean
+  colour; a part whose faces wear the default material takes its group's paint. Parts that
+  already had a colour keep it.
 - **Spanish.** The panel, its report and its messages now follow IngeTrazo in Spanish too
   (English, French, Spanish; other languages fall back to English).
 
