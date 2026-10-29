@@ -10,6 +10,8 @@
 - **Faster on large models.** Cylinder recognition no longer re-plans every region each time it
   rejects one, only its neighbours: the 77 000-triangle fountain example exports in 41 s instead of
   129 s, the STEP file byte for byte the same.
+- **Spanish.** The panel, its report and its messages now follow IngeTrazo in Spanish too
+  (English, French, Spanish; other languages fall back to English).
 
 ## 0.4.2 — 2026-10-28
 - **Convert a DXF to STEP… (exact sizes).** A new button reads the DXF itself in double

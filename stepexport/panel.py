@@ -2,7 +2,7 @@
 
 Extensions ▸ "Export to STEP…" opens the panel. "Analyse" shows what the
 file would contain (solids, open parts, cylinders found) without writing
-anything; "Export…" asks for the file and writes it. English or French,
+anything; "Export…" asks for the file and writes it. English, French or Spanish,
 following IngeTrazo's language.
 """
 import os

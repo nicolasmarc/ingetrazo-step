@@ -7,7 +7,7 @@ Clean-room STEP (ISO 10303-21, AP214) writer for [IngeTrazo](https://github.com/
 GPL-3.0-or-later. Pure Python + numpy, nothing to install. Answers the roadmap item
 "STEP export, as an extension" (#532).
 
-**Extensions ▸ Export to STEP / IGES…** opens the *STEP* panel (English / French, follows IngeTrazo's language):
+**Extensions ▸ Export to STEP / IGES…** opens the *STEP* panel (English / French / Spanish, follows IngeTrazo's language):
 
 - format: **STEP**, **IGES solids** or **IGES surfaces** (see *IGES* below);
 - content: whole visible model, or selection only — one solid per group/component, named after it;
