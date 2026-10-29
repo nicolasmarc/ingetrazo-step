@@ -5,7 +5,8 @@
   or **IGES surfaces**, written from the IGES 5.3 specification with the same solids, cylinders
   and ellipses as the STEP. Solids are manifold solid B-reps (186); surfaces are trimmed surfaces
   (144) for programs that do not read IGES solids. Names and colours carried, units mm / cm / m.
-  "Convert a DXF…" follows the chosen format. Checked with OpenCascade: every solid valid, same
+  "Convert a DXF…" follows the chosen format. Each part is a named component (subfigure 308
+  placed by a 408), so CAD programs list *Group 29*, not *Component1*. Checked with OpenCascade: every solid valid, same
   volumes as the STEP of the same model on the IngeTrazo examples (1 203 solids for the arch).
 - **Faster on large models.** Cylinder recognition no longer re-plans every region each time it
   rejects one, only its neighbours: the 77 000-triangle fountain example exports in 41 s instead of

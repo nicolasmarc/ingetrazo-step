@@ -69,6 +69,34 @@ def read_iges(text, sew=False):
             "valid": BRepCheck_Analyzer(shape).IsValid()}
 
 
+def _colour(st, ct, lab):
+    """sRGB colour of a label's shape, else of the first component that
+    has one (a part in a named subfigure carries its colour on the solid)."""
+    from OCP.Quantity import Quantity_Color, Quantity_TypeOfColor
+    from OCP.XCAFDoc import XCAFDoc_ColorType
+    from OCP.collections import Sequence_TDF_Label
+    from OCP.TDF import TDF_Label
+    c = Quantity_Color()
+    shape = st.GetShape_s(lab)
+    for ctype in (XCAFDoc_ColorType.XCAFDoc_ColorGen,
+                  XCAFDoc_ColorType.XCAFDoc_ColorSurf):
+        if ct.GetColor(shape, ctype, c):
+            # OCCT keeps colours linear; the file holds sRGB
+            return tuple(round(v, 3) for v in c.Values(
+                Quantity_TypeOfColor.Quantity_TOC_sRGB))
+    comps = Sequence_TDF_Label()
+    st.GetComponents_s(lab, comps, False)
+    for i in range(1, comps.Length() + 1):
+        ref = TDF_Label()
+        sub = comps.Value(i)
+        if st.GetReferredShape_s(sub, ref):
+            sub = ref
+        rgb = _colour(st, ct, sub)
+        if rgb is not None:
+            return rgb
+    return None
+
+
 def iges_names_colors(text):
     """Names and colours through OCCT's document reader (XCAF)."""
     from OCP.IGESCAFControl import IGESCAFControl_Reader
@@ -101,16 +129,5 @@ def iges_names_colors(text):
         nm = TDataStd_Name()
         name = (nm.Get().ToExtString() if lab.FindAttribute(
             TDataStd_Name.GetID_s(), nm) else None)
-        c = Quantity_Color()
-        rgb = None
-        shape = st.GetShape_s(lab)
-        for ctype in (XCAFDoc_ColorType.XCAFDoc_ColorGen,
-                      XCAFDoc_ColorType.XCAFDoc_ColorSurf):
-            if ct.GetColor(shape, ctype, c):
-                from OCP.Quantity import Quantity_TypeOfColor
-                # OCCT keeps colours linear; the file holds sRGB
-                rgb = tuple(round(v, 3) for v in c.Values(
-                    Quantity_TypeOfColor.Quantity_TOC_sRGB))
-                break
-        out.append((name, rgb))
+        out.append((name, _colour(st, ct, lab)))
     return out

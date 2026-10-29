@@ -46,7 +46,8 @@ specification (ingelibre/ingetrazo#109):
 - **IGES surfaces**: every face is a trimmed surface (144) bounded by model-space curves, the
   oldest form, for programs that do not read IGES solids; they sew the faces back into solids.
 
-Names (406 form 15) and colours (314) travel with each part; units mm / cm / m. Checked with
+Each part is a named component (subfigure 308 placed by a 408), its solid or faces inside it;
+names (406 form 15) and colours (314) travel with each part; units mm / cm / m. Checked with
 OpenCascade (FreeCAD's kernel): every solid valid, volumes equal to the closed-form ones and to the
 STEP of the same model, names and colours read back (`tests/test_iges.py`).
 

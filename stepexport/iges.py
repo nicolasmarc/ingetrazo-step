@@ -172,10 +172,12 @@ def write_iges(parts, path=None, scale=1000.0, unit="mm", author="",
                filename="model.igs", mode="solid", weld_tol=1e-6,
                cylinders=False, cyl_mode="soft", cyl_tol=1e-5,
                angle_max=25.0, repair_tol=None, simplify_tol=None,
-               snap=1e-6):
+               snap=1e-6, components=True):
     """Write ``parts`` (metres) as IGES text; same options as
     :func:`writer.write_step`, plus ``mode`` (``"solid"`` or
-    ``"surfaces"``). Returns ``(text, report)``; writes ``path`` if given."""
+    ``"surfaces"``) and ``components``: each shell in its own named
+    subfigure (308 + 408), so CAD shows one component per part under its
+    name. Returns ``(text, report)``; writes ``path`` if given."""
     prepared, report = prepare_shells(
         parts, scale, unit, weld_tol, cylinders, cyl_mode, cyl_tol,
         angle_max, repair_tol, simplify_tol, snap)
@@ -271,8 +273,25 @@ def write_iges(parts, path=None, scale=1000.0, unit="mm", author="",
 
     rep = {"solids": 0, "shells": 0, "surfaces": 0, "faces": 0}
 
+    def component(name, members, col=0):
+        """The part as a named component: a SUBFIGURE DEFINITION (308)
+        holding its entities, placed once by a SINGULAR SUBFIGURE INSTANCE
+        (408). CAD programs name an IGES component after the subfigure
+        (SpaceClaim showed «Component1…» with the name only on the body);
+        the members become physically dependent on the definition."""
+        for de in members:
+            F.ents[(de - 1) // 2].status = "00010000"
+        sub = F.add(308, ["0", _holl(name[:60]), str(len(members))]
+                    + [str(m) for m in members], status="00000200",
+                    label=name)
+        # the colour on the instance too: some readers (OpenCascade) take
+        # a component's colour from it, not from the solid inside
+        F.add(408, [str(sub), "0.", "0.", "0.", "1."], status="00000000",
+              color=col, label=name, props=[name_prop(name)])
+
     def trimmed_faces(V, brep, col, name):
-        """Each face as a 144 with model-space boundaries."""
+        """Each face as a 144 with model-space boundaries; their DEs."""
+        out = []
         for f in brep["faces"]:
             srf = surface(f["surface"])
             bounds = []
@@ -284,11 +303,12 @@ def write_iges(parts, path=None, scale=1000.0, unit="mm", author="",
             # the face's side: a face against its surface normal keeps it
             # by having its outer loop run the other way, which the 142
             # curves already do (they follow the loop)
-            F.add(144, [str(srf), "1", str(len(bounds) - 1)]
-                  + [str(b) for b in bounds], status="00000000",
-                  color=col, label=name, props=[name_prop(name)])
+            out.append(F.add(144, [str(srf), "1", str(len(bounds) - 1)]
+                             + [str(b) for b in bounds], status="00000000",
+                             color=col, label=name, props=[name_prop(name)]))
             rep["surfaces"] += 1
             rep["faces"] += 1
+        return out
 
     for part, shells in prepared:
         col_rgb = part.color
@@ -297,7 +317,9 @@ def write_iges(parts, path=None, scale=1000.0, unit="mm", author="",
             V, name = np.asarray(verts, float), sh["name"]
             col = colour(col_rgb)
             if mode != "solid" or not sh["closed"]:
-                trimmed_faces(V, brep, col, name)
+                members = trimmed_faces(V, brep, col, name)
+                if components and members:
+                    component(name, members, col)
                 rep["shells"] += 1
                 continue
             keys = list(brep["edges"])
@@ -331,8 +353,10 @@ def write_iges(parts, path=None, scale=1000.0, unit="mm", author="",
                           [v for fa, sense in faces
                            for v in (str(fa), "1" if sense else "0")],
                           form=1)
-            F.add(186, [str(shell), "1", "0"], status="00000000",
-                  color=col, label=name, props=[name_prop(name)])
+            solid = F.add(186, [str(shell), "1", "0"], status="00000000",
+                          color=col, label=name, props=[name_prop(name)])
+            if components:
+                component(name, [solid], col)
             rep["solids"] += 1
             rep["faces"] += len(faces)
 

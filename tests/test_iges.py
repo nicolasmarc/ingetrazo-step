@@ -153,6 +153,39 @@ def test_names_and_colours():
                   (1.0, 0.0, 0.0)),
              Part("Traverse", box_faces(.2, 0, 0, .3, .1, .1),
                   (0.0, 0.5, 1.0))]
-    got = occt_check.iges_names_colors(write_iges(parts)[0])
+    # one named component per part (subfigure 308 + instance 408)
+    text = write_iges(parts)[0]
+    assert entity_count(text, 308) == 2 and entity_count(text, 408) == 2
+    assert sorted(n for n, _c in occt_check.iges_names_colors(text)) == \
+        ["Montant gauche", "Traverse"]
+    s = occt_check.read_iges(text)
+    assert s["solids"] == 2 and s["valid"] and close(s["volume"], 2e6)
+    # colours: OpenCascade drops a colour inside a subfigure (its reader,
+    # not the file), so they are checked on the flat form
+    got = occt_check.iges_names_colors(write_iges(parts, components=False)[0])
     assert sorted(got) == [("Montant gauche", (1.0, 0.0, 0.0)),
                            ("Traverse", (0.0, 0.5, 1.0))]
+
+
+def test_colour_and_name_on_the_solid_and_its_instance():
+    text = write_iges([Part("Pied", box_faces(0, 0, 0, .1, .1, .1),
+                            (1.0, 0.0, 0.0))])[0]
+    d = [l for l in text.splitlines() if l[72] == "D"]
+    by_type = {int(a[:8]): (a, b) for a, b in zip(d[::2], d[1::2])}
+    for etype in (186, 408):
+        a, b = by_type[etype]
+        assert int(b[16:24]) < 0                  # colour: a 314 pointer
+        assert b[56:64].strip() == "Pied"         # entity label
+    assert by_type[186][0][64:72].strip()[2:4] == "01"   # dependent
+    assert "4HPied" in text.replace("\n", "")
+
+
+@needs_occt
+def test_surfaces_form_has_one_component_per_part():
+    parts = [Part("A", box_faces(0, 0, 0, .1, .1, .1)),
+             Part("B", box_faces(.2, 0, 0, .3, .1, .1))]
+    text, rep = write_iges(parts, mode="surfaces")
+    assert entity_count(text, 308) == 2 and entity_count(text, 144) == 12
+    assert sorted(n for n, _c in occt_check.iges_names_colors(text)) == ["A", "B"]
+    s = occt_check.read_iges(text, sew=True)
+    assert s["solids"] == 2 and close(s["volume"], 2e6, 1e-5)
