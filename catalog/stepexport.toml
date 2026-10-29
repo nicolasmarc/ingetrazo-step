@@ -16,11 +16,9 @@ screenshot = "stepexport.png"
 [name]
 es = "STEP / IGES: exportar, e importar STEP"
 en = "STEP / IGES export and STEP import"
-fr = "STEP / IGES : export, et import STEP"
 pt = "STEP / IGES: exportar, e importar STEP"
 
 [summary]
 es = "Exporta los grupos como sólidos STEP o IGES editables (caras planas, agujeros, cilindros reales), convierte un DXF 3D en STEP con cotas exactas e importa ensamblajes STEP: un grupo por pieza, con nombre y color."
 en = "Export groups as editable STEP or IGES solids (planar faces, holes, true cylinders), convert a 3D DXF to STEP with exact sizes, and import STEP assemblies: one group per part, named and coloured."
-fr = "Exporte les groupes en solides STEP ou IGES éditables (faces planes, trous, vrais cylindres), convertit un DXF 3D en STEP aux cotes exactes et importe les assemblages STEP : un groupe par pièce, nommé et coloré."
 pt = "Exporta os grupos como sólidos STEP ou IGES editáveis (faces planas, furos, cilindros reais), converte um DXF 3D em STEP com cotas exatas e importa montagens STEP: um grupo por peça, com nome e cor."
