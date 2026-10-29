@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.0 — 2026-10-28
+- **IGES export** (ingelibre/ingetrazo#109). A *Format* choice in the panel: STEP, **IGES solids**
+  or **IGES surfaces**, written from the IGES 5.3 specification with the same solids, cylinders
+  and ellipses as the STEP. Solids are manifold solid B-reps (186); surfaces are trimmed surfaces
+  (144) for programs that do not read IGES solids. Names and colours carried, units mm / cm / m.
+  "Convert a DXF…" follows the chosen format. Each part is a named component (subfigure 308
+  placed by a 408), so CAD programs list *Group 29*, not *Component1*. Checked with OpenCascade: every solid valid, same
+  volumes as the STEP of the same model on the IngeTrazo examples (1 203 solids for the arch).
+- **Faster on large models.** Cylinder recognition no longer re-plans every region each time it
+  rejects one, only its neighbours: the 77 000-triangle fountain example exports in 41 s instead of
+  129 s, the STEP file byte for byte the same.
+- **Colours of textured parts.** A part painted only with a picture (beech, concrete, water)
+  had no colour in the STEP or IGES, and CAD made one up. It now gets the picture's mean
+  colour; a part whose faces wear the default material takes its group's paint. Parts that
+  already had a colour keep it.
+- **Spanish.** The panel, its report and its messages now follow IngeTrazo in Spanish too
+  (English, French, Spanish; other languages fall back to English).
+
 ## 0.4.2 — 2026-10-28
 - **Convert a DXF to STEP… (exact sizes).** A new button reads the DXF itself in double
   precision and writes the STEP, without going through the IngeTrazo model (which keeps 7

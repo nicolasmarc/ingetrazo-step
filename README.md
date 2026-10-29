@@ -1,4 +1,4 @@
-# STEP export and import — IngeTrazo extension
+# STEP / IGES export and STEP import — IngeTrazo extension
 
 ![IngeTrazo to STEP](screenshots/stepexport.png)
 ![STEP import: a stair from CAD, imported in IngeTrazo as named groups](screenshots/step-import.png)
@@ -7,8 +7,9 @@ Clean-room STEP (ISO 10303-21, AP214) writer for [IngeTrazo](https://github.com/
 GPL-3.0-or-later. Pure Python + numpy, nothing to install. Answers the roadmap item
 "STEP export, as an extension" (#532).
 
-**Extensions ▸ Export to STEP…** opens the *STEP* panel (English / French, follows IngeTrazo's language):
+**Extensions ▸ Export to STEP / IGES…** opens the *STEP* panel (English / French / Spanish, follows IngeTrazo's language):
 
+- format: **STEP**, **IGES solids** or **IGES surfaces** (see *IGES* below);
 - content: whole visible model, or selection only — one solid per group/component, named after it;
 - unit (mm / cm / m), face colours, author;
 - **Recognise cylinders**: faceted drill holes, rods, tubes, rounds and fillets become true
@@ -19,8 +20,9 @@ GPL-3.0-or-later. Pure Python + numpy, nothing to install. Answers the roadmap i
   of one plane are merged — finely sampled curves stop shading as hundreds of slivers. Only the
   file is simplified, never the model;
 - **Analyse** shows the report without writing; **Export…** writes the `.stp`.
-- **Convert a DXF to STEP…** reads a DXF directly in double precision (exact sizes, one solid
-  per part, one named part per block) and writes the `.stp`, without changing the open model.
+- **Convert a DXF to STEP / IGES…** reads a DXF directly in double precision (exact sizes, one solid
+  per part, one named part per block) and writes the `.stp` (or `.igs`, following the format),
+  without changing the open model.
 
 Before writing, each part is checked and lightly repaired: welded, oriented, stacked duplicate faces
 and stray overlapping faces dropped, T-junctions stitched, small planar holes capped, warped faces
@@ -31,6 +33,23 @@ Checked by re-reading every test file with an independent reader (volumes agains
 during development, with FreeCAD's kernel (OpenCascade): all solids valid.
 
 Export does not write cones, spheres, tori or free-form NURBS surfaces yet.
+
+## IGES
+
+The same solids, cylinders and ellipses as the STEP, written to IGES 5.3 (`.igs`) from the public
+specification (ingelibre/ingetrazo#109):
+
+- **IGES solids** (default): each closed part is a manifold solid B-rep (entity 186: shell 514,
+  faces 510, loops 508, edge list 504, vertex list 502) on plane (190) and cylinder (192)
+  surfaces, edges as lines (110), circle arcs (100) and ellipse arcs (104). Open parts go out as
+  trimmed surfaces;
+- **IGES surfaces**: every face is a trimmed surface (144) bounded by model-space curves, the
+  oldest form, for programs that do not read IGES solids; they sew the faces back into solids.
+
+Each part is a named component (subfigure 308 placed by a 408), its solid or faces inside it;
+names (406 form 15) and colours (314) travel with each part; units mm / cm / m. Checked with
+OpenCascade (FreeCAD's kernel): every solid valid, volumes equal to the closed-form ones and to the
+STEP of the same model, names and colours read back (`tests/test_iges.py`).
 
 ## Import
 
@@ -67,7 +86,8 @@ Extension Manager (catalog), or unzip `dist/stepexport-<version>.zip` into
 `tools/make_step_fixtures.py` which needs CadQuery — a test-data tool only),
 `python tests/test_roundtrip_import.py` (export then import),
 `python tests/test_import_ingetrazo.py` (in a real IngeTrazo window; needs PySide6 and an
-IngeTrazo checkout, `INGETRAZO_SRC`). All pytest-compatible.
+IngeTrazo checkout, `INGETRAZO_SRC`), `tests/test_iges.py` (read back with OpenCascade:
+`pip install cadquery-ocp`, a test tool only; skipped without it). All pytest-compatible.
 
 ## Extra tool
 

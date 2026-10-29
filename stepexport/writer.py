@@ -109,6 +109,86 @@ def _snap_cylinder(cyl, q):
     return Cylinder(c, a, max(round(cyl.radius / q) * q, q), ref)
 
 
+def prepare_shells(parts, scale=1000.0, unit="mm", weld_tol=1e-6,
+                   cylinders=False, cyl_mode="soft", cyl_tol=1e-5,
+                   angle_max=25.0, repair_tol=None, simplify_tol=None,
+                   snap=1e-6):
+    """The geometry both writers (STEP, IGES) put in a file: per part,
+    its shells as B-rep (:func:`brep.build_brep`) with planes and the
+    recognised cylinders. Returns ``(prepared, report)``: ``prepared`` is a
+    list of ``(part, [shell, ...])`` with ``shell`` a dict ``name``,
+    ``closed``, ``verts``, ``brep``; ``report`` is the analysis report
+    (``parts``, ``cylinders``, ``notes``) the panel shows."""
+    report = {"parts": [], "solids": 0, "shells": 0, "faces": 0,
+              "cylinders": 0, "notes": []}
+    prepared = []
+    if snap:
+        parts = [_snap_part(p, snap) for p in parts]
+    for part in parts:
+        out_shells = []
+        verts, shells, notes = analyse(part, weld_tol, repair_tol)
+        report["notes"].extend(f"{part.name}: {n}" for n in sorted(set(notes)))
+        soft = soft_index_pairs(part, verts, weld_tol) if cylinders else None
+        info = {"name": part.name, "shells": []}
+        for si, sh in enumerate(shells):
+            name = part.name if len(shells) == 1 else f"{part.name} ({si + 1})"
+            regions = []
+            if cylinders and sh["closed"]:
+                if cyl_mode == "soft" and soft:
+                    regions = find_cylinders(verts, sh["faces"], soft, mode="soft",
+                                             tol=cyl_tol, angle_max=angle_max)
+                # geometry on whatever the soft edges did not cover: a model
+                # imported from elsewhere often softens only a few seams
+                used = {fi for r in regions for fi in r["faces"]}
+                for r in find_cylinders(verts, sh["faces"], None, mode="geometry",
+                                        tol=cyl_tol, angle_max=angle_max):
+                    if not used.intersection(r["faces"]):
+                        regions.append(r)
+            if snap:
+                for r in regions:
+                    r["cyl"] = cyl = _snap_cylinder(r["cyl"], snap)
+                    # its corners onto the round cylinder (they moved a few
+                    # tenths of a micrometre when snapped to the grid)
+                    for vi in {i for fi in r["faces"] for l in sh["faces"][fi] for i in l}:
+                        p = np.asarray(verts[vi], float)
+                        d = p - cyl.center
+                        h = d @ cyl.axis
+                        rad = d - h * cyl.axis
+                        n = np.linalg.norm(rad)
+                        if n > 0:
+                            verts[vi] = tuple(cyl.center + h * cyl.axis + rad * (cyl.radius / n))
+            shell_faces = sh["faces"]
+            simp = None
+            if simplify_tol and sh["closed"]:
+                keep = {fi for r in regions for fi in r["faces"]}
+                shell_faces, imap, simp = simplify_shell(
+                    verts, shell_faces, simplify_tol, keep)
+                for r in regions:
+                    r["faces"] = [imap[fi] for fi in r["faces"]]
+                if simp["merged"]:
+                    report["notes"].append(
+                        f"{name}: {simp['merged']} facet(s) merged "
+                        f"(max {simp['max_dev'] * scale:.3f} {unit})")
+            brep = build_brep(verts, shell_faces, regions, tol=cyl_tol)
+            cyls = [dict(c, radius=c["radius"] * scale) for c in brep["cylinders"]]
+            rej = [dict(c, radius=c["radius"] * scale) for c in brep["rejected"]]
+            volume = sh["volume"] * scale ** 3
+            if brep["cylinders"] or (simp and simp["merged"]):
+                volume = brep_volume(verts, brep) * scale ** 3
+            info["shells"].append({"name": name, "closed": sh["closed"],
+                                   "volume": volume,
+                                   "faces": len(brep["faces"]),
+                                   "facets": len(sh["faces"]),
+                                   "cylinders": cyls, "rejected": rej,
+                                   "problems": sh["problems"]})
+            report["cylinders"] += len(cyls)
+            out_shells.append({"name": name, "closed": sh["closed"],
+                               "verts": verts, "brep": brep})
+        report["parts"].append(info)
+        prepared.append((part, out_shells))
+    return prepared, report
+
+
 def write_step(parts, path=None, scale=1000.0, unit="mm", author="",
                filename="model.stp", weld_tol=1e-6, cylinders=False,
                cyl_mode="soft", cyl_tol=1e-5, angle_max=25.0, repair_tol=None,
@@ -167,66 +247,17 @@ def write_step(parts, path=None, scale=1000.0, unit="mm", author="",
             dir_cache[k] = E.ref("DIRECTION('',(%s))" % ",".join(_real(c) for c in k))
         return dir_cache[k]
 
-    if snap:
-        parts = [_snap_part(p, snap) for p in parts]
-    for part in parts:
-        verts, shells, notes = analyse(part, weld_tol, repair_tol)
-        report["notes"].extend(f"{part.name}: {n}" for n in sorted(set(notes)))
-        soft = soft_index_pairs(part, verts, weld_tol) if cylinders else None
-        info = {"name": part.name, "shells": []}
+    prepared, prep_report = prepare_shells(
+        parts, scale, unit, weld_tol, cylinders, cyl_mode, cyl_tol,
+        angle_max, repair_tol, simplify_tol, snap)
+    report["parts"] = prep_report["parts"]
+    report["cylinders"] = prep_report["cylinders"]
+    report["notes"] = prep_report["notes"]
+    for part, shells_out in prepared:
         items, item_names = [], []
-        for si, sh in enumerate(shells):
-            name = part.name if len(shells) == 1 else f"{part.name} ({si + 1})"
-            regions = []
-            if cylinders and sh["closed"]:
-                if cyl_mode == "soft" and soft:
-                    regions = find_cylinders(verts, sh["faces"], soft, mode="soft",
-                                             tol=cyl_tol, angle_max=angle_max)
-                # geometry on whatever the soft edges did not cover: a model
-                # imported from elsewhere often softens only a few seams
-                used = {fi for r in regions for fi in r["faces"]}
-                for r in find_cylinders(verts, sh["faces"], None, mode="geometry",
-                                        tol=cyl_tol, angle_max=angle_max):
-                    if not used.intersection(r["faces"]):
-                        regions.append(r)
-            if snap:
-                for r in regions:
-                    r["cyl"] = cyl = _snap_cylinder(r["cyl"], snap)
-                    # its corners onto the round cylinder (they moved a few
-                    # tenths of a micrometre when snapped to the grid)
-                    for vi in {i for fi in r["faces"] for l in sh["faces"][fi] for i in l}:
-                        p = np.asarray(verts[vi], float)
-                        d = p - cyl.center
-                        h = d @ cyl.axis
-                        rad = d - h * cyl.axis
-                        n = np.linalg.norm(rad)
-                        if n > 0:
-                            verts[vi] = tuple(cyl.center + h * cyl.axis + rad * (cyl.radius / n))
-            shell_faces = sh["faces"]
-            simp = None
-            if simplify_tol and sh["closed"]:
-                keep = {fi for r in regions for fi in r["faces"]}
-                shell_faces, imap, simp = simplify_shell(
-                    verts, shell_faces, simplify_tol, keep)
-                for r in regions:
-                    r["faces"] = [imap[fi] for fi in r["faces"]]
-                if simp["merged"]:
-                    report["notes"].append(
-                        f"{name}: {simp['merged']} facet(s) merged "
-                        f"(max {simp['max_dev'] * scale:.3f} {unit})")
-            brep = build_brep(verts, shell_faces, regions, tol=cyl_tol)
-            cyls = [dict(c, radius=c["radius"] * scale) for c in brep["cylinders"]]
-            rej = [dict(c, radius=c["radius"] * scale) for c in brep["rejected"]]
-            volume = sh["volume"] * scale ** 3
-            if brep["cylinders"] or (simp and simp["merged"]):
-                volume = brep_volume(verts, brep) * scale ** 3
-            info["shells"].append({"name": name, "closed": sh["closed"],
-                                   "volume": volume,
-                                   "faces": len(brep["faces"]),
-                                   "facets": len(sh["faces"]),
-                                   "cylinders": cyls, "rejected": rej,
-                                   "problems": sh["problems"]})
-            report["cylinders"] += len(cyls)
+        for shell_info in shells_out:
+            name, verts, brep = shell_info["name"], shell_info["verts"], shell_info["brep"]
+            closed = shell_info["closed"]
             vpt, eref = {}, {}
 
             def vertex(i):
@@ -284,7 +315,7 @@ def write_step(parts, path=None, scale=1000.0, unit="mm", author="",
                 sense = ".T." if f["sense"] else ".F."
                 face_refs.append(E.ref(f"ADVANCED_FACE('',({','.join(bounds)}),{geo},{sense})"))
             report["faces"] += len(face_refs)
-            if sh["closed"]:
+            if closed:
                 shell = E.ref(f"CLOSED_SHELL('',({','.join(face_refs)}))")
                 solid = E.ref(f"MANIFOLD_SOLID_BREP({_str(name)},{shell})")
                 report["solids"] += 1
@@ -304,7 +335,6 @@ def write_step(parts, path=None, scale=1000.0, unit="mm", author="",
                 ssu = E.ref(f"SURFACE_STYLE_USAGE(.BOTH.,{ss})")
                 psa = E.ref(f"PRESENTATION_STYLE_ASSIGNMENT(({ssu}))")
                 styled.append(E.ref(f"STYLED_ITEM('color',({psa}),{solid})"))
-        report["parts"].append(info)
         # a group holding several separate solids (a DXF layer of loose
         # faces: every baluster, tread and rail of a stair in one group) is
         # several parts: each body becomes its own component in CAD,

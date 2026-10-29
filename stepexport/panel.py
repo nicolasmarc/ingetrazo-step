@@ -2,7 +2,7 @@
 
 Extensions ▸ "Export to STEP…" opens the panel. "Analyse" shows what the
 file would contain (solids, open parts, cylinders found) without writing
-anything; "Export…" asks for the file and writes it. English or French,
+anything; "Export…" asks for the file and writes it. English, French or Spanish,
 following IngeTrazo's language.
 """
 import os
@@ -18,6 +18,7 @@ from . import __version__
 from .collect import collect_parts, format_report
 from .texts import language, texts
 from .writer import write_step
+from .iges import write_iges
 
 UNITS = [("mm", 1000.0), ("cm", 100.0), ("m", 1.0)]
 
@@ -50,6 +51,10 @@ class StepPanel(QWidget):
         title = QLabel(f"<b>{T['title']}</b> <small>v{__version__}</small>")
         lay.addWidget(title)
         form = QFormLayout()
+        self.fmt = QComboBox()
+        self.fmt.addItems([T["fmt_step"], T["fmt_iges"], T["fmt_iges_surf"]])
+        self.fmt.setToolTip(T["fmt_tip"])
+        form.addRow(T["format"], self.fmt)
         self.what = QComboBox()
         self.what.addItems([T["all"], T["selection"]])
         form.addRow(T["content"], self.what)
@@ -107,6 +112,7 @@ class StepPanel(QWidget):
     # ---- options ---------------------------------------------------------
     def _load(self):
         s = self.settings
+        self.fmt.setCurrentIndex(int(s.value("format", 0)))
         self.unit.setCurrentText(s.value("unit", "mm"))
         self.cyl.setChecked(s.value("cylinders", "true") == "true")
         self.cyl_mode.setCurrentIndex(int(s.value("cyl_mode", 0)))
@@ -120,6 +126,7 @@ class StepPanel(QWidget):
 
     def _save(self):
         s = self.settings
+        s.setValue("format", self.fmt.currentIndex())
         s.setValue("unit", self.unit.currentText())
         s.setValue("cylinders", "true" if self.cyl.isChecked() else "false")
         s.setValue("cyl_mode", self.cyl_mode.currentIndex())
@@ -130,15 +137,40 @@ class StepPanel(QWidget):
         s.setValue("dxf_show", "true" if self.dxf_show.isChecked() else "false")
 
     # ---- actions ---------------------------------------------------------
+    def _format(self):
+        """-> (writer, extra options, extensions, file filter, dialog title,
+        default file name) for the chosen format."""
+        T, i = self.T, self.fmt.currentIndex()
+        if i == 0:
+            return (write_step, {}, (".stp", ".step"), "STEP (*.stp *.step)",
+                    T["dialog"], T["default_name"])
+        return (write_iges, {"mode": "solid" if i == 1 else "surfaces"},
+                (".igs", ".iges"), "IGES (*.igs *.iges)", T["dialog_iges"],
+                T["default_iges"])
+
+    def _writer_for(self, path):
+        """The writer the file name asks for: an .igs/.iges gets IGES (in
+        the chosen IGES form, solids when STEP is chosen), anything else
+        STEP; the format list only decides the name the dialog offers."""
+        if path and path.lower().endswith((".igs", ".iges")):
+            mode = "surfaces" if self.fmt.currentIndex() == 2 else "solid"
+            return write_iges, {"mode": mode}
+        return write_step, {}
+
+    def _ask_path(self, folder, base=None):
+        _w, _o, exts, flt, title, default = self._format()
+        name = (os.path.splitext(base)[0] + exts[0]) if base else default
+        path, _ = QFileDialog.getSaveFileName(
+            self, title, os.path.join(folder, name), flt)
+        if path and not path.lower().endswith(exts):
+            path += exts[0]
+        return path
+
     def export(self):
         last = self.settings.value("last_dir", os.path.expanduser("~"))
-        path, _ = QFileDialog.getSaveFileName(
-            self, self.T["dialog"], os.path.join(last, self.T["default_name"]),
-            "STEP (*.stp *.step)")
+        path = self._ask_path(last)
         if not path:
             return
-        if not path.lower().endswith((".stp", ".step")):
-            path += ".stp"
         self.settings.setValue("last_dir", os.path.dirname(path))
         self.run(path)
 
@@ -149,14 +181,9 @@ class StepPanel(QWidget):
         if not src:
             return
         self.settings.setValue("last_dxf_dir", os.path.dirname(src))
-        base = os.path.splitext(os.path.basename(src))[0] + ".stp"
-        path, _ = QFileDialog.getSaveFileName(
-            self, self.T["dialog"], os.path.join(os.path.dirname(src), base),
-            "STEP (*.stp *.step)")
+        path = self._ask_path(os.path.dirname(src), os.path.basename(src))
         if not path:
             return
-        if not path.lower().endswith((".stp", ".step")):
-            path += ".stp"
         self.convert_dxf(src, path)
 
     def convert_dxf(self, src, path):
@@ -175,10 +202,11 @@ class StepPanel(QWidget):
             if not self.colors.isChecked():
                 for p in parts:
                     p.color = None
-            _, rep = write_step(
+            writer, extra = self._writer_for(path)
+            _, rep = writer(
                 parts, path=path, scale=dict(UNITS)[unit], unit=unit,
                 author=self.author.text(), filename=os.path.basename(path),
-                cylinders=self.cyl.isChecked(), cyl_mode="soft",
+                cylinders=self.cyl.isChecked(), cyl_mode="soft", **extra,
                 repair_tol=1e-5,
                 simplify_tol=(self.simp_tol.value() / 1000.0
                               if self.simplify.isChecked() else None),
@@ -193,7 +221,8 @@ class StepPanel(QWidget):
             u=self.T["dxf_units_declared"] if info["declared"] else
             self.T["dxf_units_guessed"].format(u="mm" if info["scale"] == 0.001 else "m"))
         report = f"{self.T['written']} {path}\n{head}\n\n" + format_report(rep, unit, self.lang)
-        if self.dxf_show.isChecked() and self.import_file(path):
+        if self.dxf_show.isChecked() and path.lower().endswith((".stp", ".step")) \
+                and self.import_file(path):
             # what was written, read back from the .stp itself: the solids
             # as the CAD program will get them, one group each, selected,
             # one Ctrl+Z to take them away again
@@ -251,11 +280,14 @@ class StepPanel(QWidget):
             for p in parts:
                 p.color = None
         unit = self.unit.currentText()
+        default = self._format()[-1]
+        writer, extra = (self._writer_for(path) if path
+                         else self._format()[:2])
         try:
-            _, rep = write_step(
+            _, rep = writer(
                 parts, path=path, scale=dict(UNITS)[unit], unit=unit,
-                author=self.author.text(),
-                filename=os.path.basename(path or self.T["default_name"]),
+                author=self.author.text(), **extra,
+                filename=os.path.basename(path or default),
                 cylinders=self.cyl.isChecked(),
                 cyl_mode="soft" if self.cyl_mode.currentIndex() == 0 else "geometry",
                 repair_tol=1e-5,          # 0.01 mm: T-junctions, missing caps

@@ -50,7 +50,13 @@ class Cylinder:
 
     @property
     def v(self):
-        return np.cross(self.axis, self.ref)
+        # axis x ref, written out: np.cross costs ~50 us a call and this is
+        # asked millions of times on a large model (the whole export of a
+        # 77 000-triangle fountain spent most of its time here)
+        a0, a1, a2 = (float(c) for c in self.axis)
+        r0, r1, r2 = (float(c) for c in self.ref)
+        return np.array((a1 * r2 - a2 * r1, a2 * r0 - a0 * r2,
+                         a0 * r1 - a1 * r0))
 
     def h(self, p):
         return float((np.asarray(p, float) - self.center) @ self.axis)
