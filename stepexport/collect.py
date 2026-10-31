@@ -224,7 +224,8 @@ def format_report(rep, unit="mm", lang=None):
     """Plain-text summary of a :func:`writer.write_step` report, in the
     IngeTrazo language (English or French)."""
     T = texts(lang)
-    u3 = {"mm": 1e-3, "cm": 1.0, "m": 1e6}[unit]      # -> cm3
+    u3 = {"mm": 1e-3, "cm": 1.0, "m": 1e6,          # -> cm3
+          "in": 16.387064, "ft": 28316.846592}[unit]
     lines = [T["summary"].format(s=rep["solids"], o=rep["shells"], f=rep["faces"],
                                  c=rep.get("cylinders", 0))]
     for p in rep["parts"]:

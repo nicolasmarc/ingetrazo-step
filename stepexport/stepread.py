@@ -317,17 +317,22 @@ class _Reader:
         return M
 
     def _unit(self):
-        for eid in self.e.ids("LENGTH_UNIT"):
-            rec = self.e[eid]
-            if "LENGTH_UNIT" in rec:
-                if "SI_UNIT" in rec:
-                    pre = rec["SI_UNIT"][0]
-                    return {"MILLI": 1e-3, "CENTI": 1e-2, "DECI": 1e-1, "KILO": 1e3,
-                            "MICRO": 1e-6}.get(pre or "", 1.0)
-                if "CONVERSION_BASED_UNIT" in rec:
-                    name = str(rec["CONVERSION_BASED_UNIT"][0]).upper()
-                    return {"INCH": 0.0254, "FOOT": 0.3048, "MILLIMETRE": 1e-3,
-                            "MILLIMETER": 1e-3}.get(name, 1e-3)
+        # An inch or a foot is a CONVERSION_BASED_UNIT whose size is given
+        # in an SI millimetre, which is a LENGTH_UNIT too: the conversion
+        # unit is the file's unit, the SI one only its measure (first found
+        # was read as mm before 0.5.1).
+        recs = [self.e[eid] for eid in self.e.ids("LENGTH_UNIT")]
+        recs = [r for r in recs if "LENGTH_UNIT" in r]
+        for rec in recs:
+            if "CONVERSION_BASED_UNIT" in rec:
+                name = str(rec["CONVERSION_BASED_UNIT"][0]).upper()
+                return {"INCH": 0.0254, "FOOT": 0.3048, "MILLIMETRE": 1e-3,
+                        "MILLIMETER": 1e-3}.get(name, 1e-3)
+        for rec in recs:
+            if "SI_UNIT" in rec:
+                pre = rec["SI_UNIT"][0]
+                return {"MILLI": 1e-3, "CENTI": 1e-2, "DECI": 1e-1, "KILO": 1e3,
+                        "MICRO": 1e-6}.get(pre or "", 1.0)
         return 1e-3                                       # usual default: mm
 
     # -- curves -----------------------------------------------------------------

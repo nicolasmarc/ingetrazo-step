@@ -10,7 +10,7 @@ meshed to a tolerance) and ``stepimport`` (parts -> IngeTrazo groups).
 ``iges`` (IGES 5.3 writer from the same B-rep).
 The IngeTrazo UI (``panel``) is loaded lazily by ``setup``.
 """
-__version__ = "0.5.0"
+__version__ = "0.5.1"
 
 
 def setup(app):          # pragma: no cover - UI, needs IngeTrazo

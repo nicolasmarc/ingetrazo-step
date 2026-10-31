@@ -17,10 +17,11 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog
 from . import __version__
 from .collect import collect_parts, format_report
 from .texts import language, texts
-from .writer import write_step
+from .writer import UNIT_SCALE, unit_for_document, write_step
 from .iges import write_iges
 
-UNITS = [("mm", 1000.0), ("cm", 100.0), ("m", 1.0)]
+#: Unit choices after "Document": codes of ``writer.UNIT_SCALE``.
+UNITS = ["mm", "cm", "m", "in", "ft"]
 
 
 def _icon():
@@ -59,7 +60,10 @@ class StepPanel(QWidget):
         self.what.addItems([T["all"], T["selection"]])
         form.addRow(T["content"], self.what)
         self.unit = QComboBox()
-        self.unit.addItems([u for u, _ in UNITS])
+        self.unit.addItem(T["unit_doc"].format(u=self._document_unit()), "doc")
+        for u in UNITS:
+            self.unit.addItem(u, u)
+        self.unit.setToolTip(T["unit_tip"])
         form.addRow(T["unit"], self.unit)
         self.cyl = QCheckBox(T["cyl"])
         self.cyl.setToolTip(T["cyl_tip"])
@@ -113,7 +117,10 @@ class StepPanel(QWidget):
     def _load(self):
         s = self.settings
         self.fmt.setCurrentIndex(int(s.value("format", 0)))
-        self.unit.setCurrentText(s.value("unit", "mm"))
+        # a new key: the old "unit" held "mm" for everyone, whatever the
+        # document, and would keep hiding its units
+        i = self.unit.findData(s.value("export_unit", "doc"))
+        self.unit.setCurrentIndex(max(i, 0))
         self.cyl.setChecked(s.value("cylinders", "true") == "true")
         self.cyl_mode.setCurrentIndex(int(s.value("cyl_mode", 0)))
         self.colors.setChecked(s.value("colors", "true") == "true")
@@ -127,7 +134,7 @@ class StepPanel(QWidget):
     def _save(self):
         s = self.settings
         s.setValue("format", self.fmt.currentIndex())
-        s.setValue("unit", self.unit.currentText())
+        s.setValue("export_unit", self.unit.currentData())
         s.setValue("cylinders", "true" if self.cyl.isChecked() else "false")
         s.setValue("cyl_mode", self.cyl_mode.currentIndex())
         s.setValue("colors", "true" if self.colors.isChecked() else "false")
@@ -135,6 +142,25 @@ class StepPanel(QWidget):
         s.setValue("simplify", "true" if self.simplify.isChecked() else "false")
         s.setValue("simplify_tol", self.simp_tol.value())
         s.setValue("dxf_show", "true" if self.dxf_show.isChecked() else "false")
+
+    def _document_unit(self):
+        """Export unit of the open document's length unit (mm when the
+        IngeTrazo version has no document units)."""
+        try:
+            from core.units import model_units_of
+            length = model_units_of(getattr(self.app, "scene", None))["length"]
+        except Exception:
+            return "mm"
+        return unit_for_document(length)
+
+    def _export_unit(self):
+        """The unit the file is written in, read when exporting: the
+        document's units may have changed since the panel was opened."""
+        u = self.unit.currentData()
+        if u == "doc":
+            u = self._document_unit()
+            self.unit.setItemText(0, self.T["unit_doc"].format(u=u))
+        return u
 
     # ---- actions ---------------------------------------------------------
     def _format(self):
@@ -194,7 +220,7 @@ class StepPanel(QWidget):
         from PySide6.QtWidgets import QApplication
         from .dxfdirect import read_parts
         self._save()
-        unit = self.unit.currentText()
+        unit = self._export_unit()
         QApplication.setOverrideCursor(Qt.WaitCursor)
         t0 = time.time()
         try:
@@ -204,7 +230,7 @@ class StepPanel(QWidget):
                     p.color = None
             writer, extra = self._writer_for(path)
             _, rep = writer(
-                parts, path=path, scale=dict(UNITS)[unit], unit=unit,
+                parts, path=path, scale=UNIT_SCALE[unit], unit=unit,
                 author=self.author.text(), filename=os.path.basename(path),
                 cylinders=self.cyl.isChecked(), cyl_mode="soft", **extra,
                 repair_tol=1e-5,
@@ -279,13 +305,13 @@ class StepPanel(QWidget):
         if not self.colors.isChecked():
             for p in parts:
                 p.color = None
-        unit = self.unit.currentText()
+        unit = self._export_unit()
         default = self._format()[-1]
         writer, extra = (self._writer_for(path) if path
                          else self._format()[:2])
         try:
             _, rep = writer(
-                parts, path=path, scale=dict(UNITS)[unit], unit=unit,
+                parts, path=path, scale=UNIT_SCALE[unit], unit=unit,
                 author=self.author.text(), **extra,
                 filename=os.path.basename(path or default),
                 cylinders=self.cyl.isChecked(),

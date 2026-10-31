@@ -11,7 +11,9 @@ TEXTS = {
                    "IGES surfaces: one trimmed surface per face, the oldest form, for "
                    "programs that do not read IGES solids; they sew the faces back.",
         "content": "Content", "all": "Whole visible model", "selection": "Selection only",
-        "unit": "Unit", "cyl": "Recognise cylinders (V2)",
+        "unit": "Unit", "unit_doc": "Document ({u})",
+        "unit_tip": "Document: the units set in IngeTrazo (feet and inches go out in inches).",
+        "cyl": "Recognise cylinders (V2)",
         "cyl_tip": "Faceted holes, rods, rounds and fillets become true cylinders in the file.",
         "detect": "Detection", "soft": "Soft edges (recommended)",
         "geometry": "Geometry only (angle ≤ 25°)", "colors": "Face colours",
@@ -56,7 +58,9 @@ TEXTS = {
                    "IGES surfaces : une surface détourée par face, la forme la plus ancienne, pour "
                    "les logiciels qui ne lisent pas les solides IGES ; ils recousent les faces.",
         "content": "Contenu", "all": "Tout le modèle visible", "selection": "Sélection seulement",
-        "unit": "Unité", "cyl": "Reconnaître les cylindres (V2)",
+        "unit": "Unité", "unit_doc": "Document ({u})",
+        "unit_tip": "Document : les unités réglées dans IngeTrazo (pieds-pouces exportés en pouces).",
+        "cyl": "Reconnaître les cylindres (V2)",
         "cyl_tip": "Trous, tiges, arrondis et congés à facettes deviennent de vrais cylindres dans le fichier.",
         "detect": "Repérage", "soft": "Arêtes adoucies (recommandé)",
         "geometry": "Géométrie seule (angle ≤ 25°)", "colors": "Couleurs des faces",
@@ -121,7 +125,9 @@ TEXTS = {
                    "IGES superficies: una superficie recortada por cara, la forma más antigua, para "
                    "los programas que no leen sólidos IGES; ellos vuelven a coser las caras.",
         "content": "Contenido", "all": "Todo el modelo visible", "selection": "Solo la selección",
-        "unit": "Unidad", "cyl": "Reconocer cilindros (V2)",
+        "unit": "Unidad", "unit_doc": "Documento ({u})",
+        "unit_tip": "Documento: las unidades ajustadas en IngeTrazo (pies y pulgadas se exportan en pulgadas).",
+        "cyl": "Reconocer cilindros (V2)",
         "cyl_tip": "Agujeros, varillas, redondeos y empalmes facetados pasan a ser cilindros reales en el archivo.",
         "detect": "Detección", "soft": "Aristas suavizadas (recomendado)",
         "geometry": "Solo geometría (ángulo ≤ 25°)", "colors": "Colores de las caras",

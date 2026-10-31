@@ -164,3 +164,28 @@ if __name__ == "__main__":
         if k.startswith("test_"):
             f(); print("ok", k)
     teardown_module()
+
+
+def test_export_follows_the_document_units():
+    """«Document» writes the file in the open document's units: inches
+    for a feet-and-inches document, millimetres for a millimetre one."""
+    if SKIP:
+        print("skip:", SKIP); return
+    win = _window()
+    panel = _s["panel"]
+    from core import units
+    from stepexport import stepread
+    out = Path(tempfile.mkdtemp())
+    win.open_path(SRC / "examples" / "arco-yanque.igz")
+    panel.what.setCurrentIndex(0)
+    panel.unit.setCurrentIndex(panel.unit.findData("doc"))
+    for length, want, metres in (("ft-in", "in", 0.0254), ("mm", "mm", 1e-3),
+                                 ("ft", "ft", 0.3048)):
+        units.apply_units(win.viewport.scene, {"length": length, "precision": 2})
+        path = out / f"doc-{length}.stp"
+        panel.run(str(path))
+        assert panel.unit.itemText(0).endswith(f"({want})"), panel.unit.itemText(0)
+        text = path.read_text()
+        if want != "mm":
+            assert ("'INCH'" if want == "in" else "'FOOT'") in text
+        assert abs(stepread.read(text).unit - metres) < 1e-12, length
