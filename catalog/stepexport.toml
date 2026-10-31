@@ -2,13 +2,13 @@
 # Replace the sha256 if the zip was rebuilt (python tools/build_zip.py prints it).
 
 id = "stepexport"
-version = "0.5.0"
+version = "0.5.1"
 author = "Nicolas Marc"
 author_url = "https://github.com/nicolasmarc"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/nicolasmarc/ingetrazo-step"
-download = "https://raw.githubusercontent.com/nicolasmarc/ingetrazo-step/0d9d8e2ac540fb80369d661c5931783355a511ac/dist/stepexport-0.5.0.zip"
-sha256 = "7bea15a7b6f0db9ebf7f89857e57106c5bb60be42d06f83f3e9bb2f6bc6275fc"
+download = "https://raw.githubusercontent.com/nicolasmarc/ingetrazo-step/c08208aa2899ead46c3c63ae002af72943ebe483/dist/stepexport-0.5.1.zip"
+sha256 = "e3c2b8c792e4e3ddfbc0c359e529ec0b62c03465a5355720685a6912e443e597"
 ingetrazo = "0.5.8"
 tags = ["import-export", "productivity"]
 screenshot = "stepexport.png"
