@@ -11,7 +11,9 @@ GPL-3.0-or-later. Pure Python + numpy, nothing to install. Answers the roadmap i
 
 - format: **STEP**, **IGES solids** or **IGES surfaces** (see *IGES* below);
 - content: whole visible model, or selection only — one solid per group/component, named after it;
-- unit (mm / cm / m), face colours, author;
+- unit: **Document** by default (the units set in IngeTrazo: metric as they are, inches for
+  every inch form and for feet-and-inches, feet for decimal feet), or mm / cm / m / in / ft;
+  face colours, author;
 - **Recognise cylinders**: faceted drill holes, rods, tubes, rounds and fillets become true
   `CYLINDRICAL_SURFACE` faces with `CIRCLE` edges, or `ELLIPSE` edges where a plane cuts them at an
   angle (mitred tube corners, angled pipe ends) — from IngeTrazo's soft edges, then from geometry
@@ -47,7 +49,7 @@ specification (ingelibre/ingetrazo#109):
   oldest form, for programs that do not read IGES solids; they sew the faces back into solids.
 
 Each part is a named component (subfigure 308 placed by a 408), its solid or faces inside it;
-names (406 form 15) and colours (314) travel with each part; units mm / cm / m. Checked with
+names (406 form 15) and colours (314) travel with each part; units mm / cm / m / in / ft. Checked with
 OpenCascade (FreeCAD's kernel): every solid valid, volumes equal to the closed-form ones and to the
 STEP of the same model, names and colours read back (`tests/test_iges.py`).
 

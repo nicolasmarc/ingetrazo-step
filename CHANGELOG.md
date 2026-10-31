@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.1 — 2026-11-01
+- **The file follows the document's units.** The *Unit* list starts with **Document (…)**,
+  the units set in IngeTrazo, read at each export: millimetres, centimetres and metres as they
+  are, inches for decimal, fractional and feet-and-inches documents, feet for decimal feet.
+  The unit used to be a separate choice, remembered as mm whatever the document.
+- **Inches and feet.** STEP writes them as ISO 10303-41 conversion-based units (INCH / FOOT
+  measured in millimetres), IGES with unit flags 1 / 4. Read back in metres by our reader and by
+  OpenCascade.
+- **Import of inch and foot STEP files.** The reader took the first length unit it met, which in
+  such files is the millimetre the inch is measured in: an inch part came in 25.4 times too small.
+  The conversion-based unit now wins.
+
 ## 0.5.0 — 2026-10-28
 - **IGES export** (ingelibre/ingetrazo#109). A *Format* choice in the panel: STEP, **IGES solids**
   or **IGES surfaces**, written from the IGES 5.3 specification with the same solids, cylinders

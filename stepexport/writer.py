@@ -54,6 +54,23 @@ class _Emit:
         return f"#{self.add(text)}"
 
 
+#: Export units: file units per metre (the model is in metres).
+UNIT_SCALE = {"mm": 1000.0, "cm": 100.0, "m": 1.0,
+              "in": 1.0 / 0.0254, "ft": 1.0 / 0.3048}
+
+
+def unit_for_document(length):
+    """The export unit for a document whose lengths are shown in
+    ``length`` (a ``core.units`` code): metric as it is, inches for every
+    inch form, feet for decimal feet. Feet-and-inches drawings go out in
+    inches, the unit CAD programs exchange them in."""
+    if length in ("mm", "cm", "m", "ft"):
+        return length
+    if length in ("in", "in-frac", "ft-in", "ft-in-frac"):
+        return "in"
+    return "mm"
+
+
 def _unit(a):
     a = np.asarray(a, float)
     return a / np.linalg.norm(a)
@@ -216,8 +233,18 @@ def write_step(parts, path=None, scale=1000.0, unit="mm", author="",
     app = E.ref("APPLICATION_CONTEXT('core data for automotive mechanical design processes')")
     E.add(f"APPLICATION_PROTOCOL_DEFINITION('international standard','automotive_design',2000,{app})")
     pctx = E.ref(f"PRODUCT_CONTEXT('',{app},'mechanical')")
-    prefix = {"mm": ".MILLI.", "m": "$", "cm": ".CENTI."}[unit]
-    ulen = E.ref(f"( LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT({prefix},.METRE.) )")
+    if unit in ("in", "ft"):
+        # ISO 10303-41: an inch or a foot is a conversion-based unit, a
+        # length measure of the SI millimetre
+        mm = E.ref("( LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.) )")
+        size = E.ref(f"LENGTH_MEASURE_WITH_UNIT(LENGTH_MEASURE("
+                     f"{'25.4' if unit == 'in' else '304.8'}),{mm})")
+        dims = E.ref("DIMENSIONAL_EXPONENTS(1.,0.,0.,0.,0.,0.,0.)")
+        ulen = E.ref(f"( CONVERSION_BASED_UNIT('{'INCH' if unit == 'in' else 'FOOT'}',"
+                     f"{size}) LENGTH_UNIT() NAMED_UNIT({dims}) )")
+    else:
+        prefix = {"mm": ".MILLI.", "m": "$", "cm": ".CENTI."}[unit]
+        ulen = E.ref(f"( LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT({prefix},.METRE.) )")
     uang = E.ref("( NAMED_UNIT(*) PLANE_ANGLE_UNIT() SI_UNIT($,.RADIAN.) )")
     usol = E.ref("( NAMED_UNIT(*) SI_UNIT($,.STERADIAN.) SOLID_ANGLE_UNIT() )")
     unc = E.ref(f"UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE(1.E-05),{ulen},'distance_accuracy_value','confusion accuracy')")

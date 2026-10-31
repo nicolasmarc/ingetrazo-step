@@ -24,7 +24,8 @@ import datetime
 import numpy as np
 from .writer import prepare_shells
 
-UNIT_FLAGS = {"mm": (2, "MM"), "m": (6, "M"), "cm": (10, "CM")}
+UNIT_FLAGS = {"mm": (2, "MM"), "m": (6, "M"), "cm": (10, "CM"),
+              "in": (1, "INCH"), "ft": (4, "FT")}
 
 
 def _real(x):
