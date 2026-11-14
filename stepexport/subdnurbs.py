@@ -1,43 +1,41 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A SubD control cage as bicubic B-spline faces (the NURBS export, V1).
+"""A SubD control cage as bicubic B-spline faces (the NURBS export).
 
 The smooth surface IngeTrazo's Subdivision extension draws is the
 Catmull-Clark limit surface of a control cage (points, polygons, creases).
-After one Catmull-Clark step every face is a quad, and over a quad whose
-corners are all ordinary (four quads around each, no crease) the limit
-surface *is* a uniform bicubic B-spline patch. So one bicubic patch per
-quad of that once-refined cage represents the surface: exactly on ordinary
-quads, closely around extraordinary points (valence other than 4) and
-creases, where no single polynomial patch is exact.
+Over a quad of the cage whose corners are ordinary (four quads around each,
+no crease) that surface *is* a bicubic polynomial patch, so B-spline faces
+can carry it exactly; around extraordinary points (valence other than 4)
+and creases no polynomial is exact, and the faces are fitted.
 
-How each patch is built, the same way everywhere:
+The faces follow the cage: **one face per quad of the cage** (a triangle,
+pentagon... is cut into its Catmull-Clark quads, one face each), so a
+CAD program shows the panels the modeller drew. Each face is a clamped
+uniform bicubic B-spline with ``spans`` knot spans per half edge of the
+cage, raised until the faces are within the tolerance:
 
-1. the quad is refined ``samples`` more times (2^samples + 1 points a side)
-   and every point pushed to its limit position: points *on* the limit
-   surface, at the patch's own dyadic parameters;
-2. each edge of the refined cage gets one cubic curve, a least-squares fit
-   of the limit points along it with its two corners kept; the two quads on
-   either side of an edge share that curve, so the faces meet exactly and a
-   closed cage gives a closed solid;
-3. the four inner control points of the patch are a least-squares fit of
-   its inner limit points, its border being those four edge curves.
-
-On an ordinary quad the limit points lie on a bicubic polynomial at exactly
-those parameters, so the fit returns it (to rounding): the export is exact
-there. Elsewhere the fit error is measured and reported.
+1. the cage is refined (Catmull-Clark) and every point pushed to its limit
+   position: points *on* the limit surface, on a regular grid of each face's
+   parameters;
+2. each edge gets one curve, a least-squares fit of the limit points along
+   it with its two ends kept; the faces on either side share that curve,
+   so they meet exactly and a closed cage gives a closed solid. An edge of
+   the cage next to a non-quad face is cut at its middle (the two halves
+   are edges of the quads on the other side); the quad face then carries a
+   triple knot there, so its border is exactly the two halves;
+3. the inner control points are a least-squares fit of the face's limit
+   points, its border being those edge curves.
 
 Creases follow the Subdivision extension's rule: an edge of sharpness ``s``
 uses the sharp rules for ``s`` steps, its two halves then keep ``s - 1``;
 a vertex on two sharp edges follows the crease rule, on three or more it is
 a corner. Open borders are sharp. Edges still sharp when the limit is taken
-are treated as fully sharp (the remaining smoothing steps are under the
-sampling's resolution).
+are treated as fully sharp.
 
-Pure Python + numpy, no Qt.
+Pure Python + numpy (no scipy, no Qt).
 """
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -51,10 +49,11 @@ def ekey(a: int, b: int) -> tuple:
 def _cc_step(V: np.ndarray, faces: list, sharp: dict):
     """One Catmull-Clark step. ``faces``: lists of point indices (any
     polygon); ``sharp``: ``{edge: sharpness}`` for creased edges (>0).
-    Returns ``(V2, quads, sharp2, edge_pt, face_pt)``: new points, the quads
-    in face order (one per corner of each face: corner, edge point to the
-    next corner, face point, edge point from the previous corner), the
-    children's sharpness, and the ids of the edge points and face points."""
+    Returns ``(V2, quads, sharp2, edge_pt, nv)``: new points (old points
+    keep their ids, then face points ``nv + face``, then edge points), the
+    quads in face order (one per corner of each face: corner, edge point to
+    the next corner, face point, edge point from the previous corner), the
+    children's sharpness and the ids of the edge points."""
     nv = len(V)
     edge_faces: dict = {}
     vert_faces = [[] for _ in range(nv)]
@@ -113,7 +112,6 @@ def _cc_step(V: np.ndarray, faces: list, sharp: dict):
             m = eid[e]
             sharp2[ekey(e[0], m)] = s - 1
             sharp2[ekey(m, e[1])] = s - 1
-    # open borders stay sharp by having one face: nothing to carry
     return V2, quads, sharp2, eid, nv
 
 
@@ -123,7 +121,7 @@ def _limit_points(V: np.ndarray, quads: list, sharp: dict) -> np.ndarray:
     crease ``(a + 4 v + b) / 6``, corner fixed."""
     nv = len(V)
     edge_faces: dict = {}
-    nbr = [dict() for _ in range(nv)]                 # v -> {edge nbr: True}
+    nbr = [dict() for _ in range(nv)]
     diag = [[] for _ in range(nv)]
     for qi, q in enumerate(quads):
         for i in range(4):
@@ -150,120 +148,14 @@ def _limit_points(V: np.ndarray, quads: list, sharp: dict) -> np.ndarray:
     return out
 
 
-# ---- Bernstein fitting ----------------------------------------------------------------
-def _bern(t):
-    t = np.asarray(t, dtype=float)
-    s = 1 - t
-    return np.stack([s ** 3, 3 * t * s * s, 3 * t * t * s, t ** 3], axis=-1)
-
-
-def fit_cubic(points: np.ndarray) -> np.ndarray:
-    """Cubic Bezier through the first and last of ``points`` (uniform
-    parameters) closest to the others: 4 control points."""
-    m = len(points) - 1
-    t = np.arange(m + 1) / m
-    B = _bern(t)
-    p0, p3 = points[0], points[-1]
-    rhs = points - np.outer(B[:, 0], p0) - np.outer(B[:, 3], p3)
-    A = B[:, 1:3]
-    mid, *_ = np.linalg.lstsq(A, rhs, rcond=None)
-    return np.vstack([p0, mid, p3])
-
-
-def fit_patch(grid: np.ndarray, border: dict) -> np.ndarray:
-    """Bicubic Bezier net ``P[i][j]`` (i along v, j along u) closest to
-    ``grid`` (limit points, (m+1) x (m+1) x 3, uniform parameters), whose
-    border rows / columns are the given curves: ``border['v0']`` (row i=0),
-    ``'v1'`` (row i=3), ``'u0'`` (column j=0), ``'u1'`` (column j=3)."""
-    m = grid.shape[0] - 1
-    P = np.zeros((4, 4, 3))
-    P[0, :] = border["v0"]
-    P[3, :] = border["v1"]
-    P[:, 0] = border["u0"]
-    P[:, 3] = border["u1"]
-    t = np.arange(m + 1) / m
-    B = _bern(t)                                      # (m+1, 4)
-    W = np.einsum("ia,jb->ijab", B, B).reshape((m + 1) ** 2, 16)
-    known = np.ones((4, 4), bool)
-    known[1:3, 1:3] = False
-    kn = known.reshape(16)
-    rhs = grid.reshape(-1, 3) - W[:, kn] @ P.reshape(16, 3)[kn]
-    inner, *_ = np.linalg.lstsq(W[:, ~kn], rhs, rcond=None)
-    P.reshape(16, 3)[~kn] = inner
-    return P
-
-
-def eval_patch(P: np.ndarray, u, v) -> np.ndarray:
-    return np.einsum("...a,...b,abk->...k", _bern(v), _bern(u), P)
-
-
-def _dbern(t):
-    t = np.asarray(t, dtype=float)
-    s = 1 - t
-    return np.stack([-3 * s * s, 3 * s * s - 6 * t * s, 6 * t * s - 3 * t * t, 3 * t * t], axis=-1)
-
-
-def distance_to_patch(P: np.ndarray, pts: np.ndarray, u, v, iters: int = 10) -> np.ndarray:
-    """Distance from each point to the patch: Gauss-Newton from the given
-    parameters, kept inside the patch. Near an extraordinary point the
-    subdivision's own parameters are not the polynomial's, so the gap at
-    equal parameters overstates the true (geometric) distance."""
-    u = np.asarray(u, float).copy()
-    v = np.asarray(v, float).copy()
-    for _ in range(iters):
-        Bu, Bv, Du, Dv = _bern(u), _bern(v), _dbern(u), _dbern(v)
-        x = np.einsum("na,nb,abk->nk", Bv, Bu, P)
-        xu = np.einsum("na,nb,abk->nk", Bv, Du, P)
-        xv = np.einsum("na,nb,abk->nk", Dv, Bu, P)
-        r = x - pts
-        a, b, c = (xu * xu).sum(1), (xu * xv).sum(1), (xv * xv).sum(1)
-        g1, g2 = (xu * r).sum(1), (xv * r).sum(1)
-        det = a * c - b * b
-        det = np.where(np.abs(det) < 1e-30, 1e-30, det)
-        u = np.clip(u - (c * g1 - b * g2) / det, 0.0, 1.0)
-        v = np.clip(v - (a * g2 - b * g1) / det, 0.0, 1.0)
-    x = np.einsum("na,nb,abk->nk", _bern(v), _bern(u), P)
-    return np.linalg.norm(x - pts, axis=1)
-
-
-# ---- the whole conversion -------------------------------------------------------------
-@dataclass
-class NurbsShell:
-    """Bicubic faces of one SubD body. Points in the cage's units.
-
-    ``verts``: corner points; ``edges``: ``{(a, b): 4x3 Bezier}`` from a to b
-    (a < b); ``faces``: ``[(corners (4 ids), net 4x4x3)]``, net ``P[i][j]``
-    with u along corner 0 -> 1 and v along corner 0 -> 3; ``closed``."""
-    verts: np.ndarray
-    edges: dict
-    faces: list
-    closed: bool
-    max_fit: float = 0.0           # largest gap between a patch and its limit points
-    exact_faces: int = 0           # faces whose fit is exact (ordinary quads)
-    notes: list = field(default_factory=list)
-
-
-def cage_to_nurbs(points, faces, creases=None, samples: int = 3, levels: int = 1,
-                  exact_tol: float = 1e-9) -> NurbsShell:
-    """Bicubic B-spline faces of a Catmull-Clark cage (see module text).
-    ``creases``: ``{(a, b): sharpness}``; ``samples``: refinement levels used
-    to measure the limit surface on each patch (3 = 9 x 9 points);
-    ``levels``: Catmull-Clark steps before cutting into patches (1 = one
-    face per quad of the once-refined cage; each more step divides the
-    patches by 4 and the error around extraordinary points by about 4)."""
-    V = np.asarray(points, dtype=float)
-    faces = [list(map(int, f)) for f in faces if len(f) >= 3]
-    sharp = {ekey(int(a), int(b)): float(s) for (a, b), s in (creases or {}).items()
-             if s and s > 0}
-
-    # the once-refined cage: its quads become the faces
-    V1, quads, sharp1, _eid, _nv = _cc_step(V, faces, sharp)
-    for _ in range(max(1, int(levels)) - 1):
-        V1, quads, sharp1, _eid, _nv = _cc_step(V1, quads, sharp1)
-    n_patch = len(quads)
-    # each patch as a grid of point ids, refined ``samples`` times
+def _refine(V: np.ndarray, faces: list, sharp: dict, samples: int):
+    """One Catmull-Clark step, then ``samples`` more on each resulting quad
+    kept as a grid of point ids. Returns ``(quads, grids, limit points,
+    edge points of the first step)``: ``grids[k][i, j]`` (i along corner
+    0 -> 3, j along corner 0 -> 1 of ``quads[k]``) indexes the limit points."""
+    V1, quads, sk, eid1, _ = _cc_step(V, faces, sharp)
     grids = [np.array([[q[0], q[1]], [q[3], q[2]]]) for q in quads]
-    Vk, sk = V1, sharp1
+    Vk, quads_k = V1, [list(q) for q in quads]
     for _ in range(samples):
         cells, where = [], []
         for pi, g in enumerate(grids):
@@ -272,123 +164,351 @@ def cage_to_nurbs(points, faces, creases=None, samples: int = 3, levels: int = 1
                 for j in range(n):
                     cells.append([g[i, j], g[i, j + 1], g[i + 1, j + 1], g[i + 1, j]])
                     where.append((pi, i, j))
-        Vk2, q2, sk2, eid, nv = _cc_step(Vk, cells, sk)
-        new = []
-        for g in grids:
-            n = g.shape[0] - 1
-            G = np.zeros((2 * n + 1, 2 * n + 1), int)
-            new.append(G)
+        Vk, quads_k, sk, eid, nv = _cc_step(Vk, cells, sk)
+        new = [np.zeros((2 * (g.shape[0] - 1) + 1,) * 2, int) for g in grids]
         for ci, (pi, i, j) in enumerate(where):
-            g = grids[pi]
-            G = new[pi]
+            g, G = grids[pi], new[pi]
             a, b, c, d = g[i, j], g[i, j + 1], g[i + 1, j + 1], g[i + 1, j]
-            G[2 * i, 2 * j] = a
-            G[2 * i, 2 * j + 2] = b
-            G[2 * i + 2, 2 * j + 2] = c
-            G[2 * i + 2, 2 * j] = d
+            G[2 * i, 2 * j], G[2 * i, 2 * j + 2] = a, b
+            G[2 * i + 2, 2 * j + 2], G[2 * i + 2, 2 * j] = c, d
             G[2 * i, 2 * j + 1] = eid[ekey(a, b)]
             G[2 * i + 1, 2 * j + 2] = eid[ekey(b, c)]
             G[2 * i + 2, 2 * j + 1] = eid[ekey(d, c)]
             G[2 * i + 1, 2 * j] = eid[ekey(a, d)]
             G[2 * i + 1, 2 * j + 1] = nv + ci
-        grids, Vk, sk = new, Vk2, sk2
-        quads_k = q2
-    if samples == 0:
-        quads_k = [list(q) for q in quads]
-    L = _limit_points(Vk, quads_k, sk)
+        grids = new
+    return quads, grids, _limit_points(Vk, quads_k, sk), eid1
 
-    # corners of the refined cage = patch corners; ids are those of V1 (kept)
-    corner_ids = sorted({int(x) for q in quads for x in q})
-    remap = {old: k for k, old in enumerate(corner_ids)}
-    verts = L[corner_ids]
 
-    # one curve per edge of the refined cage, from its limit points
-    edges = {}
-    for g in grids:
-        m = g.shape[0] - 1
-        for line in (g[0, :], g[m, :], g[:, 0], g[:, m]):
-            a, b = int(line[0]), int(line[-1])
-            k = (remap[a], remap[b])
-            key = ekey(*k)
-            if key in edges:
-                continue
-            pts = L[line]
-            if k[0] > k[1]:
-                pts = pts[::-1]
-            edges[key] = fit_cubic(pts)
+# ---- B-splines (clamped, cubic) --------------------------------------------------------
+def knots_uniform(spans: int, split: bool = False) -> np.ndarray:
+    """Clamped cubic knots on [0, 1]: ``spans`` equal spans; ``split``: two
+    halves of ``spans // 2`` spans joined by a triple knot at 0.5 (a border
+    made of two edge curves)."""
+    if not split:
+        inner = list(np.arange(1, spans) / spans)
+    else:
+        h = spans // 2
+        inner = list(np.arange(1, h) / spans) + [0.5] * 3 + list(np.arange(h + 1, spans) / spans)
+    return np.array([0.0] * 4 + inner + [1.0] * 4)
 
-    def curve(a, b):
-        c = edges[ekey(a, b)]
-        return c if a < b else c[::-1]
 
-    out_faces, worst, exact = [], 0.0, 0
-    for q, g in zip(quads, grids):
-        c = [remap[int(x)] for x in q]
-        border = {"v0": curve(c[0], c[1]), "v1": curve(c[3], c[2]),
-                  "u0": curve(c[0], c[3]), "u1": curve(c[1], c[2])}
-        grid = L[g]
-        P = fit_patch(grid, border)
-        m = g.shape[0] - 1
+def basis(knots: np.ndarray, t, deriv: bool = False):
+    """Cubic B-spline basis values (and first derivatives) at ``t``:
+    arrays of shape (len(t), len(knots) - 4)."""
+    t = np.atleast_1d(np.asarray(t, float))
+    k = np.asarray(knots, float)
+    n = len(k) - 4
+    # degree 0
+    N = np.zeros((len(t), len(k) - 1))
+    for i in range(len(k) - 1):
+        if k[i] < k[i + 1]:
+            N[:, i] = (t >= k[i]) & (t < k[i + 1])
+    last = max(i for i in range(len(k) - 1) if k[i] < k[i + 1])
+    N[t >= k[-1], last] = 1.0
+    prev = N
+    for p in range(1, 4):
+        cur = np.zeros((len(t), len(k) - 1 - p))
+        for i in range(len(k) - 1 - p):
+            d1, d2 = k[i + p] - k[i], k[i + p + 1] - k[i + 1]
+            if d1 > 0:
+                cur[:, i] += (t - k[i]) / d1 * prev[:, i]
+            if d2 > 0:
+                cur[:, i] += (k[i + p + 1] - t) / d2 * prev[:, i + 1]
+        if p == 2:
+            N2 = cur
+        prev = cur
+    if not deriv:
+        return prev[:, :n]
+    D = np.zeros((len(t), n))
+    for i in range(n):
+        d1, d2 = k[i + 3] - k[i], k[i + 4] - k[i + 1]
+        if d1 > 0:
+            D[:, i] += 3 / d1 * N2[:, i]
+        if d2 > 0 and i + 1 < N2.shape[1]:
+            D[:, i] -= 3 / d2 * N2[:, i + 1]
+    return prev[:, :n], D
+
+
+def insert_knot(ctrl: np.ndarray, knots: np.ndarray, t: float):
+    """Boehm knot insertion (cubic): the same curve with one more knot."""
+    k = np.asarray(knots, float)
+    m = int(np.searchsorted(k, t, side="right")) - 1
+    new = []
+    for i in range(len(ctrl) + 1):
+        if i <= m - 3:
+            new.append(ctrl[i])
+        elif i > m:
+            new.append(ctrl[i - 1])
+        else:
+            a = (t - k[i]) / (k[i + 3] - k[i])
+            new.append((1 - a) * ctrl[i - 1] + a * ctrl[i])
+    return np.array(new), np.insert(k, m + 1, t)
+
+
+def fit_curve(points: np.ndarray, knots: np.ndarray) -> np.ndarray:
+    """Cubic B-spline (``knots``) through the first and last of ``points``
+    (uniform parameters) closest to the others."""
+    m = len(points) - 1
+    N = basis(knots, np.arange(m + 1) / m)
+    c = np.zeros((N.shape[1], 3))
+    c[0], c[-1] = points[0], points[-1]
+    rhs = points - np.outer(N[:, 0], c[0]) - np.outer(N[:, -1], c[-1])
+    c[1:-1], *_ = np.linalg.lstsq(N[:, 1:-1], rhs, rcond=None)
+    return c
+
+
+def fit_surface(grid: np.ndarray, ku, kv, border: dict) -> np.ndarray:
+    """Control net ``P[i][j]`` (i along v, j along u) of the B-spline with
+    knots ``ku``, ``kv`` closest to ``grid`` (limit points on uniform
+    parameters), its border rows / columns being the given control
+    polygons: ``'v0'`` (row 0), ``'v1'`` (last row), ``'u0'`` (column 0),
+    ``'u1'`` (last column)."""
+    m = grid.shape[0] - 1
+    t = np.arange(m + 1) / m
+    Nu, Nv = basis(ku, t), basis(kv, t)
+    cu, cv = Nu.shape[1], Nv.shape[1]
+    P = np.zeros((cv, cu, 3))
+    P[0, :], P[-1, :] = border["v0"], border["v1"]
+    P[:, 0], P[:, -1] = border["u0"], border["u1"]
+    W = np.einsum("ia,jb->ijab", Nv, Nu).reshape((m + 1) ** 2, cv * cu)
+    known = np.ones((cv, cu), bool)
+    known[1:-1, 1:-1] = False
+    kn = known.ravel()
+    rhs = grid.reshape(-1, 3) - W[:, kn] @ P.reshape(-1, 3)[kn]
+    inner, *_ = np.linalg.lstsq(W[:, ~kn], rhs, rcond=None)
+    P.reshape(-1, 3)[~kn] = inner
+    return P
+
+
+def _tensor(Na, Nb, P):
+    """sum over a, b of Na[n, a] Nb[n, b] P[a, b] for every n (a matrix
+    product, then a weighted sum: no big temporary)."""
+    cv, cu, _ = P.shape
+    T = (Nb @ P.transpose(1, 0, 2).reshape(cu, cv * 3)).reshape(-1, cv, 3)
+    return np.einsum("na,nak->nk", Na, T)
+
+
+def eval_surface(P, ku, kv, u, v, deriv=False):
+    u, v = np.ravel(u), np.ravel(v)
+    if not deriv:
+        return _tensor(basis(kv, v), basis(ku, u), P)
+    Nu, Du = basis(ku, u, True)
+    Nv, Dv = basis(kv, v, True)
+    return _tensor(Nv, Nu, P), _tensor(Nv, Du, P), _tensor(Dv, Nu, P)
+
+
+def distance_to_surface(P, ku, kv, pts, u, v, iters: int = 10) -> np.ndarray:
+    """Distance from each point to the face: Gauss-Newton from the given
+    parameters, kept inside the face. Near an extraordinary point the
+    subdivision's own parameters are not the polynomial's, so the gap at
+    equal parameters overstates the true (geometric) distance."""
+    u = np.asarray(u, float).copy()
+    v = np.asarray(v, float).copy()
+    for _ in range(iters):
+        x, xu, xv = eval_surface(P, ku, kv, u, v, True)
+        r = x - pts
+        a, b, c = (xu * xu).sum(1), (xu * xv).sum(1), (xv * xv).sum(1)
+        g1, g2 = (xu * r).sum(1), (xv * r).sum(1)
+        det = a * c - b * b
+        det = np.where(np.abs(det) < 1e-30, 1e-30, det)
+        u = np.clip(u - (c * g1 - b * g2) / det, 0.0, 1.0)
+        v = np.clip(v - (a * g2 - b * g1) / det, 0.0, 1.0)
+    return np.linalg.norm(eval_surface(P, ku, kv, u, v) - pts, axis=1)
+
+
+# ---- the whole conversion -------------------------------------------------------------
+@dataclass
+class BFace:
+    loop: list            # [(edge key, forward)] around the face, counter-clockwise
+    net: np.ndarray       # control points P[i][j], i along v, j along u
+    ku: np.ndarray
+    kv: np.ndarray
+
+
+@dataclass
+class NurbsShell:
+    """B-spline faces of one SubD body. Points in the cage's units.
+
+    ``verts``: ``{id: point}``; ``edges``: ``{(a, b): (control points from a
+    to b, knots)}`` with a < b; ``faces``: :class:`BFace`; ``closed``."""
+    verts: dict
+    edges: dict
+    faces: list
+    closed: bool
+    max_fit: float = 0.0           # largest distance from the limit points to the faces
+    spans: int = 1
+    exact_faces: int = 0           # faces whose fit is exact (ordinary areas)
+    notes: list = field(default_factory=list)
+
+
+def _place_children(grids, k0, M):
+    """The four child grids of a cage quad as one (2M+1) grid, u along
+    corner 0 -> 1 and v along corner 0 -> 3 of the cage face."""
+    F = np.full((2 * M + 1, 2 * M + 1), -1, int)
+    g0, g1, g2, g3 = (grids[k0 + i] for i in range(4))
+    F[:M + 1, :M + 1] = g0                                  # corner a: u -> b, v -> d
+    for i in range(M + 1):
+        for j in range(M + 1):
+            F[j, 2 * M - i] = g1[i, j]                      # corner b: u -> c, v -> a
+            F[2 * M - i, 2 * M - j] = g2[i, j]              # corner c: u -> d, v -> b
+            F[2 * M - j, i] = g3[i, j]                      # corner d: u -> a, v -> c
+    assert (F >= 0).all()
+    return F
+
+
+def cage_to_bspline(points, faces, creases=None, spans: int = 1, samples: int | None = None,
+                    exact_tol: float = 1e-9) -> NurbsShell:
+    """B-spline faces of a Catmull-Clark cage (see module text): one face per
+    quad of the cage, ``spans`` knot spans per half edge."""
+    V = np.asarray(points, dtype=float)
+    cage = [list(map(int, f)) for f in faces if len(f) >= 3]
+    sharp = {ekey(int(a), int(b)): float(s) for (a, b), s in (creases or {}).items()
+             if s and s > 0}
+    spans = max(1, int(spans))
+    if samples is None:
+        samples = int(np.ceil(np.log2(spans))) + 2            # 4 points per span
+    quads, grids, L, eid1 = _refine(V, cage, sharp, samples)
+    M = 2 ** samples
+    size = max(1.0, float(np.ptp(V, axis=0).max()))
+
+    first = []                                              # first child of each face
+    k = 0
+    for f in cage:
+        first.append(k)
+        k += len(f)
+    merged = [len(f) == 4 for f in cage]
+    edge_faces: dict = {}
+    for fi, f in enumerate(cage):
+        for i in range(len(f)):
+            edge_faces.setdefault(ekey(f[i], f[(i + 1) % len(f)]), []).append(fi)
+    split = {e for e, fs in edge_faces.items() if any(not merged[x] for x in fs)}
+
+    edges: dict = {}
+
+    def edge(a, b, pts, n):
+        """The curve from a to b (shared): (key, forward)."""
+        key = ekey(a, b)
+        if key not in edges:
+            p = pts if a < b else pts[::-1]
+            kn = knots_uniform(n)
+            edges[key] = (fit_curve(p, kn), kn)
+        return key, a < b
+
+    def ctrl(key, fwd):
+        c, _ = edges[key]
+        return c if fwd else c[::-1]
+
+    regions = []                                            # (corner ids, grid)
+    for fi, f in enumerate(cage):
+        if merged[fi]:
+            regions.append((fi, f, _place_children(grids, first[fi], M)))
+        else:
+            for i in range(len(f)):
+                q = quads[first[fi] + i]
+                regions.append((None, q, grids[first[fi] + i]))
+
+    out, worst, exact = [], 0.0, 0
+    for fi, c, G in regions:
+        m = G.shape[0] - 1
+        if fi is None:                                       # a child quad: 4 half edges
+            loop, sides = [], []
+            for i in range(4):
+                line = [G[0, :], G[:, m], G[m, ::-1], G[::-1, 0]][i]
+                key, fwd = edge(int(line[0]), int(line[-1]), L[line], spans)
+                loop.append((key, fwd))
+                sides.append(ctrl(key, fwd))
+            ku = kv = knots_uniform(spans)
+            border = {"v0": sides[0], "u1": sides[1], "v1": sides[2][::-1], "u0": sides[3][::-1]}
+        else:                                                # a cage quad: full or halved edges
+            a, b, cc, d = c
+            cut = [ekey(a, b) in split, ekey(b, cc) in split,
+                   ekey(cc, d) in split, ekey(d, a) in split]
+            ku = knots_uniform(2 * spans, cut[0] or cut[2])
+            kv = knots_uniform(2 * spans, cut[1] or cut[3])
+            loop, polys = [], []
+            lines = [G[0, :], G[:, m], G[m, ::-1], G[::-1, 0]]
+            for i, line in enumerate(lines):
+                kn_dir = ku if i in (0, 2) else kv
+                if cut[i]:                                   # two half edges, meeting at the middle
+                    h = m // 2
+                    parts = []
+                    for seg in (line[:h + 1], line[h:]):
+                        key, fwd = edge(int(seg[0]), int(seg[-1]), L[seg], spans)
+                        loop.append((key, fwd))
+                        parts.append(ctrl(key, fwd))
+                    poly = np.vstack([parts[0], parts[1][1:]])
+                else:
+                    key, fwd = edge(int(line[0]), int(line[-1]), L[line], 2 * spans)
+                    loop.append((key, fwd))
+                    poly, kn = ctrl(key, fwd), knots_uniform(2 * spans)
+                    if 0.5 in kn_dir[4:-4] and list(kn_dir).count(0.5) == 3:
+                        for _ in range(2):                   # same curve, on the face's knots
+                            poly, kn = insert_knot(poly, kn, 0.5)
+                polys.append(poly)
+            border = {"v0": polys[0], "u1": polys[1], "v1": polys[2][::-1], "u0": polys[3][::-1]}
+        grid = L[G]
+        P = fit_surface(grid, ku, kv, border)
         t = np.arange(m + 1) / m
         uu, vv = np.meshgrid(t, t)
-        param_gap = np.linalg.norm(eval_patch(P, uu, vv) - grid, axis=-1)
-        if float(param_gap.max()) <= exact_tol * max(1.0, float(np.ptp(V, axis=0).max())):
+        gap_p = np.linalg.norm(eval_surface(P, ku, kv, uu, vv) - grid.reshape(-1, 3), axis=1)
+        if float(gap_p.max()) <= exact_tol * size:
             exact += 1
-            gap = float(param_gap.max())
+            gap = float(gap_p.max())
         else:
-            gap = float(distance_to_patch(P, grid.reshape(-1, 3), uu.ravel(), vv.ravel()).max())
+            # the gap at equal parameters bounds the distance; only the
+            # points that could hold the maximum are projected
+            hot = gap_p > 0.5 * gap_p.max()
+            d = distance_to_surface(P, ku, kv, grid.reshape(-1, 3)[hot],
+                                    uu.ravel()[hot], vv.ravel()[hot])
+            gap = float(max(np.minimum(d, gap_p[hot]).max(),
+                            gap_p[~hot].max() if (~hot).any() else 0.0))
         worst = max(worst, gap)
-        out_faces.append((c, P))
+        out.append(BFace(loop, P, ku, kv))
 
-    # closed when every refined edge has two faces
     count: dict = {}
-    for c, _ in out_faces:
-        for i in range(4):
-            e = ekey(c[i], c[(i + 1) % 4])
-            count[e] = count.get(e, 0) + 1
+    for f in out:
+        for key, _ in f.loop:
+            count[key] = count.get(key, 0) + 1
     closed = bool(count) and all(n == 2 for n in count.values())
-    return NurbsShell(verts, edges, out_faces, closed, worst, exact)
+    verts = {}
+    for key in edges:
+        for v in key:
+            verts[v] = L[v]
+    return NurbsShell(verts, edges, out, closed, worst, spans, exact)
 
 
 def shell_volume(sh: NurbsShell, order: int = 6) -> float:
-    """Volume enclosed by the faces (divergence theorem, Gauss quadrature:
-    V = 1/3 sum of the integral of P . (Pu x Pv)); 0 for an open shell."""
+    """Volume enclosed by the faces (divergence theorem, Gauss quadrature on
+    each knot span: V = 1/3 sum of the integral of P . (Pu x Pv)); 0 for an
+    open shell."""
     if not sh.closed:
         return 0.0
     x, w = np.polynomial.legendre.leggauss(order)
-    t, w = (x + 1) / 2, w / 2
-    B, D = _bern(t), _dbern(t)
-    W = np.outer(w, w)
     tot = 0.0
-    for _c, P in sh.faces:
-        p = np.einsum("ia,jb,abk->ijk", B, B, P)
-        pu = np.einsum("ia,jb,abk->ijk", B, D, P)
-        pv = np.einsum("ia,jb,abk->ijk", D, B, P)
-        tot += float(np.sum(W * np.einsum("ijk,ijk->ij", p, np.cross(pu, pv))))
+    for f in sh.faces:
+        bu, bv = np.unique(f.ku), np.unique(f.kv)
+        for u0, u1 in zip(bu[:-1], bu[1:]):
+            for v0, v1 in zip(bv[:-1], bv[1:]):
+                tu = u0 + (x + 1) / 2 * (u1 - u0)
+                tv = v0 + (x + 1) / 2 * (v1 - v0)
+                uu, vv = np.meshgrid(tu, tv)
+                p, pu, pv = eval_surface(f.net, f.ku, f.kv, uu, vv, True)
+                W = np.outer(w, w).ravel() * (u1 - u0) * (v1 - v0) / 4
+                tot += float(np.sum(W * np.einsum("nk,nk->n", p, np.cross(pu, pv))))
     return tot / 3
 
 
-def cage_to_nurbs_tol(points, faces, creases=None, tol=None, max_levels: int = 3,
-                      samples: int = 3) -> NurbsShell:
-    """:func:`cage_to_nurbs` with as few refinement levels as keep the
-    patches within ``tol`` (cage units) of the limit surface they were fitted
-    to; one level when ``tol`` is None."""
-    sh = cage_to_nurbs(points, faces, creases, samples=samples, levels=1)
-    lv = 1
-    while tol is not None and sh.max_fit > tol and lv < max_levels:
-        lv += 1
-        sh = cage_to_nurbs(points, faces, creases, samples=samples, levels=lv)
-    sh.notes.append(f"levels={lv}")
+def cage_to_nurbs_tol(points, faces, creases=None, tol=None, max_spans: int = 8) -> NurbsShell:
+    """:func:`cage_to_bspline` with as few knot spans as keep the faces within
+    ``tol`` (cage units) of the subdivision surface; one span per half edge
+    when ``tol`` is None."""
+    n = 1
+    sh = cage_to_bspline(points, faces, creases, spans=n)
+    while tol is not None and sh.max_fit > tol and n < max_spans:
+        n *= 2
+        sh = cage_to_bspline(points, faces, creases, spans=n)
     return sh
-
-
-def transformed(sh: NurbsShell, fn) -> NurbsShell:
-    """The same shell with every point mapped by ``fn`` (an affine map:
-    Bezier nets map point by point)."""
-    m = lambda a: np.apply_along_axis(lambda p: np.asarray(fn(tuple(p)), float), -1, a)
-    return NurbsShell(m(sh.verts), {k: m(c) for k, c in sh.edges.items()},
-                      [(c, m(P)) for c, P in sh.faces], sh.closed, sh.max_fit,
-                      sh.exact_faces, list(sh.notes))
 
 
 def from_ext(ext: dict):

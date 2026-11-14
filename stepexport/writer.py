@@ -378,29 +378,32 @@ def write_step(parts, path=None, scale=1000.0, unit="mm", author="",
         return "(" + ",".join("(" + ",".join(point(p) for p in row) + ")"
                               for row in rows) + ")"
 
+    def knots(kn):
+        vals, mult = np.unique(np.round(np.asarray(kn, float), 12), return_counts=True)
+        return ("(" + ",".join(str(int(m)) for m in mult) + ")",
+                "(" + ",".join(_real(v) for v in vals) + ")")
+
     for part in nurbs_parts:
         sh = part.nurbs
-        vref = {i: E.ref(f"VERTEX_POINT('',{point(p)})") for i, p in enumerate(sh.verts)}
+        vref = {i: E.ref(f"VERTEX_POINT('',{point(p)})") for i, p in sh.verts.items()}
         eref = {}
-        for (a, b), ctrl in sh.edges.items():
+        for (a, b), (ctrl, kn) in sh.edges.items():
+            m, k = knots(kn)
             crv = E.ref(f"B_SPLINE_CURVE_WITH_KNOTS('',3,("
                         f"{','.join(point(p) for p in ctrl)}),.UNSPECIFIED.,.F.,.F.,"
-                        f"(4,4),(0.,1.),.UNSPECIFIED.)")
+                        f"{m},{k},.UNSPECIFIED.)")
             eref[(a, b)] = E.ref(f"EDGE_CURVE('',{vref[a]},{vref[b]},{crv},.T.)")
         face_refs = []
-        for c, P in sh.faces:
-            oes = []
-            for i in range(4):
-                a, b = c[i], c[(i + 1) % 4]
-                k = (a, b) if a < b else (b, a)
-                oes.append(E.ref(f"ORIENTED_EDGE('',*,*,{eref[k]},"
-                                 f"{'.T.' if a < b else '.F.'})"))
+        for f in sh.faces:
+            oes = [E.ref(f"ORIENTED_EDGE('',*,*,{eref[key]},{'.T.' if fwd else '.F.'})")
+                   for key, fwd in f.loop]
             el = E.ref(f"EDGE_LOOP('',({','.join(oes)}))")
             bound = E.ref(f"FACE_OUTER_BOUND('',{el},.T.)")
-            # STEP lists control points u-major: P[i][j] has i along v
-            srf = E.ref(f"B_SPLINE_SURFACE_WITH_KNOTS('',3,3,{nets(np.swapaxes(P, 0, 1))},"
-                        f".UNSPECIFIED.,.F.,.F.,.F.,(4,4),(4,4),(0.,1.),(0.,1.),"
-                        f".UNSPECIFIED.)")
+            mu, ku = knots(f.ku)
+            mv, kv = knots(f.kv)
+            # STEP lists control points u-major: net P[i][j] has i along v
+            srf = E.ref(f"B_SPLINE_SURFACE_WITH_KNOTS('',3,3,{nets(np.swapaxes(f.net, 0, 1))},"
+                        f".UNSPECIFIED.,.F.,.F.,.F.,{mu},{mv},{ku},{kv},.UNSPECIFIED.)")
             face_refs.append(E.ref(f"ADVANCED_FACE('',({bound}),{srf},.T.)"))
         report["faces"] += len(face_refs)
         report.setdefault("nurbs_faces", 0)
