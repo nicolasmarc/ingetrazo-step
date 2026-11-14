@@ -173,9 +173,51 @@ def faces_part(name, faces, edges=(), paint=None):
     return Part(name, out, _color(faces, paint), soft or None)
 
 
-def collect_parts(scene, selection_only=False, world_mesh=None):
+def _cage_in_world(group, mesh, pts):
+    """The SubD cage points where the group's surface is now: the
+    Subdivision extension remembers a few surface points when it builds
+    the group and carries the cage along with them; the same fit is used
+    here (its own module when installed, else the centroid's move)."""
+    data = (getattr(group, "ext", None) or {}).get("subdiv") or {}
+    ref = data.get("ref")
+    if not ref:
+        return pts
+    positions = [_xyz(v.position) for v in getattr(mesh, "vertices", [])]
+    try:
+        from subdiv.follow import apply_point, fit
+        aff = fit(ref, positions)
+        return pts if aff is None else [apply_point(aff, p) for p in pts]
+    except Exception:
+        pass
+    if not positions:
+        return pts
+    n = len(positions)
+    c = [sum(p[k] for p in positions) / n for k in range(3)]
+    d = [c[k] - float(ref["c"][k]) for k in range(3)]
+    return [tuple(p[k] + d[k] for k in range(3)) for p in pts]
+
+
+def nurbs_part(name, group, mesh, paint=None, tol=1e-4):
+    """A Part holding the group's SubD surface as B-spline faces, or None
+    when the group is not a SubD body."""
+    from .subdnurbs import cage_to_nurbs_tol, from_ext
+    data = from_ext(getattr(group, "ext", None))
+    if data is None:
+        return None
+    pts, fs, cr = data
+    if not pts or not fs:
+        return None
+    pts = _cage_in_world(group, mesh, pts)
+    sh = cage_to_nurbs_tol(pts, fs, cr, tol=tol)
+    return Part(name, [], _color(mesh.faces, paint), None, nurbs=sh)
+
+
+def collect_parts(scene, selection_only=False, world_mesh=None, subd_nurbs=False,
+                  nurbs_tol=1e-4):
     """-> list of Part. ``selection_only``: the selected groups, and the
-    selected loose faces."""
+    selected loose faces. ``subd_nurbs``: SubD bodies (the Subdivision
+    extension's groups) as B-spline faces rebuilt from their cage, within
+    ``nurbs_tol`` metres of the true surface, instead of their facets."""
     if world_mesh is None:                       # pragma: no cover - in app
         from core.group import world_mesh
     visible = getattr(scene, "entity_visible", lambda _e: True)
@@ -195,9 +237,14 @@ def collect_parts(scene, selection_only=False, world_mesh=None):
         if not mesh.faces:
             continue
         paint = getattr(g, "material", None)
-        parts.append(faces_part(unique(str(getattr(g, "name", "Groupe"))),
-                                mesh.faces, mesh.edges,
-                                paint if isinstance(paint, dict) else None))
+        paint = paint if isinstance(paint, dict) else None
+        name = unique(str(getattr(g, "name", "Groupe")))
+        if subd_nurbs:
+            part = nurbs_part(name, g, mesh, paint, nurbs_tol)
+            if part is not None:
+                parts.append(part)
+                continue
+        parts.append(faces_part(name, mesh.faces, mesh.edges, paint))
     loose = getattr(scene, "loose_mesh", None)
     if loose is not None:
         fs = [f for f in loose.faces if visible(f)
@@ -237,6 +284,10 @@ def format_report(rep, unit="mm", lang=None):
             if sh["closed"]:
                 line += f", {sh['volume'] * u3:.2f} cm³"
             lines.append(line)
+            if sh.get("nurbs"):
+                nb = sh["nurbs"]
+                lines.append("    ◦ " + T["nurbs_line"].format(f=nb["faces"],
+                                                              g=f"{nb['gap']:.3g} {unit}"))
             for c in sh.get("cylinders", []):
                 what = (T["rod"] if c["full"] else T["round"]) if c["convex"] else \
                        (T["hole"] if c["full"] else T["fillet"])

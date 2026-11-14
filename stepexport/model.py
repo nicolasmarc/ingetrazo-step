@@ -18,3 +18,6 @@ class Part:
     # fillet...): pairs of end points ``((x,y,z), (x,y,z))``. Only a hint for
     # the cylinder recognition (V2); ``None`` = no hint available.
     soft_edges: list = None
+    # A SubD body exported as bicubic B-spline faces
+    # (:class:`subdnurbs.NurbsShell`, metres); ``faces`` is then ignored.
+    nurbs: object = None
