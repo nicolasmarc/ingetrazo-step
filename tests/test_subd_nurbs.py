@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.dirname(__file__))
 from stepexport.model import Part
 from stepexport.subdnurbs import (_cc_step, basis, cage_to_bspline, cage_to_nurbs_tol,
+                                  cage_to_patches,
                                   distance_to_surface, eval_surface, from_ext,
                                   insert_knot, knots_uniform, shell_volume)
 from stepexport.writer import write_step
@@ -126,6 +127,19 @@ def test_close_to_the_subdivision_surface(V, F, cr):
     assert d4.max() < 2e-4 and d4.max() < d1.max()
 
 
+def test_small_patches_for_subd_editing():
+    """The first export, kept as a choice: one Bezier patch (4 x 4 control
+    points, four edges) per quad of the refined cage, more levels until the
+    tolerance holds."""
+    sh = cage_to_patches(CUBE_V, CUBE_F)
+    assert len(sh.faces) == 24 and sh.closed
+    assert all(f.net.shape == (4, 4, 3) and len(f.loop) == 4 for f in sh.faces)
+    fine = cage_to_nurbs_tol(CUBE_V, CUBE_F, {}, tol=2e-4, mode="patches")
+    assert fine.max_fit <= 2e-4 and len(fine.faces) in (96, 384)
+    sh = cage_to_patches(PYR_V, PYR_F, {}, 2)
+    assert sh.closed and len(sh.faces) == 4 * (4 + 4 * 3)
+
+
 def test_tolerance_picks_the_spans():
     sh = cage_to_nurbs_tol(CUBE_V, CUBE_F, {}, tol=2e-4)
     assert sh.max_fit <= 2e-4 and len(sh.faces) == 6
@@ -152,15 +166,17 @@ def test_cage_from_a_subd_group_payload():
 
 
 @needs_occt
+@pytest.mark.parametrize("mode", ["panels", "patches"])
 @pytest.mark.parametrize("cage", ["cube", "cube-rim", "torus", "pyramid"])
-def test_opencascade_reads_a_valid_solid(cage, tmp_path):
+def test_opencascade_reads_a_valid_solid(cage, mode, tmp_path):
     from OCP.STEPControl import STEPControl_Reader
     from OCP.BRepCheck import BRepCheck_Analyzer
     from OCP.GProp import GProp_GProps
     from OCP.BRepGProp import BRepGProp
     V, F, cr = {"cube": (CUBE_V, CUBE_F, {}), "cube-rim": (CUBE_V, CUBE_F, TOP),
                 "torus": (*torus(), {}), "pyramid": (PYR_V, PYR_F, {})}[cage]
-    sh = cage_to_bspline(V, F, cr, spans=2)
+    sh = (cage_to_bspline(V, F, cr, spans=2) if mode == "panels"
+          else cage_to_patches(V, F, cr))
     text, rep = write_step([Part("SubD", [], (0.8, 0.5, 0.2), nurbs=sh)],
                            scale=1000.0, unit="mm")
     assert "B_SPLINE_SURFACE_WITH_KNOTS" in text and rep["solids"] == 1

@@ -197,7 +197,7 @@ def _cage_in_world(group, mesh, pts):
     return [tuple(p[k] + d[k] for k in range(3)) for p in pts]
 
 
-def nurbs_part(name, group, mesh, paint=None, tol=1e-4):
+def nurbs_part(name, group, mesh, paint=None, tol=1e-4, mode="panels"):
     """A Part holding the group's SubD surface as B-spline faces, or None
     when the group is not a SubD body."""
     from .subdnurbs import cage_to_nurbs_tol, from_ext
@@ -208,16 +208,18 @@ def nurbs_part(name, group, mesh, paint=None, tol=1e-4):
     if not pts or not fs:
         return None
     pts = _cage_in_world(group, mesh, pts)
-    sh = cage_to_nurbs_tol(pts, fs, cr, tol=tol)
+    sh = cage_to_nurbs_tol(pts, fs, cr, tol=tol, mode=mode)
     return Part(name, [], _color(mesh.faces, paint), None, nurbs=sh)
 
 
 def collect_parts(scene, selection_only=False, world_mesh=None, subd_nurbs=False,
-                  nurbs_tol=1e-4):
+                  nurbs_tol=1e-4, nurbs_mode="panels"):
     """-> list of Part. ``selection_only``: the selected groups, and the
     selected loose faces. ``subd_nurbs``: SubD bodies (the Subdivision
     extension's groups) as B-spline faces rebuilt from their cage, within
-    ``nurbs_tol`` metres of the true surface, instead of their facets."""
+    ``nurbs_tol`` metres of the true surface, instead of their facets;
+    ``nurbs_mode``: ``"panels"`` (one face per cage quad) or ``"patches"``
+    (small Bezier patches)."""
     if world_mesh is None:                       # pragma: no cover - in app
         from core.group import world_mesh
     visible = getattr(scene, "entity_visible", lambda _e: True)
@@ -240,7 +242,7 @@ def collect_parts(scene, selection_only=False, world_mesh=None, subd_nurbs=False
         paint = paint if isinstance(paint, dict) else None
         name = unique(str(getattr(g, "name", "Groupe")))
         if subd_nurbs:
-            part = nurbs_part(name, g, mesh, paint, nurbs_tol)
+            part = nurbs_part(name, g, mesh, paint, nurbs_tol, nurbs_mode)
             if part is not None:
                 parts.append(part)
                 continue

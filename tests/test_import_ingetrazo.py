@@ -184,6 +184,10 @@ def test_subd_body_exports_as_nurbs():
         panel.run(str(d / "nurbs.stp"))
         text = (d / "nurbs.stp").read_text()
         assert text.count("B_SPLINE_SURFACE_WITH_KNOTS") == 6      # one face per cage quad
+        panel.nurbs_mode.setCurrentIndex(panel.nurbs_mode.findData("patches"))
+        panel.run(str(d / "patches.stp"))
+        assert (d / "patches.stp").read_text().count("B_SPLINE_SURFACE_WITH_KNOTS") >= 24
+        panel.nurbs_mode.setCurrentIndex(panel.nurbs_mode.findData("panels"))
         assert "NURBS" in panel.out.toPlainText()
         panel.nurbs.setChecked(False)
         panel.run(str(d / "facets.stp"))

@@ -68,6 +68,12 @@ class StepPanel(QWidget):
         self.nurbs = QCheckBox(T["nurbs"])
         self.nurbs.setToolTip(T["nurbs_tip"])
         form.addRow(self.nurbs)
+        self.nurbs_mode = QComboBox()
+        self.nurbs_mode.addItem(T["nurbs_panels"], "panels")
+        self.nurbs_mode.addItem(T["nurbs_patches"], "patches")
+        self.nurbs_mode.setToolTip(T["nurbs_mode_tip"])
+        self.nurbs.toggled.connect(self.nurbs_mode.setEnabled)
+        form.addRow(T["nurbs_faces"], self.nurbs_mode)
         self.cyl = QCheckBox(T["cyl"])
         self.cyl.setToolTip(T["cyl_tip"])
         form.addRow(self.cyl)
@@ -126,6 +132,9 @@ class StepPanel(QWidget):
         self.unit.setCurrentIndex(max(i, 0))
         self.cyl.setChecked(s.value("cylinders", "true") == "true")
         self.nurbs.setChecked(s.value("subd_nurbs", "true") == "true")
+        self.nurbs_mode.setCurrentIndex(max(0, self.nurbs_mode.findData(
+            s.value("subd_nurbs_mode", "panels"))))
+        self.nurbs_mode.setEnabled(self.nurbs.isChecked())
         self.cyl_mode.setCurrentIndex(int(s.value("cyl_mode", 0)))
         self.colors.setChecked(s.value("colors", "true") == "true")
         self.author.setText(s.value("author", ""))
@@ -141,6 +150,7 @@ class StepPanel(QWidget):
         s.setValue("export_unit", self.unit.currentData())
         s.setValue("cylinders", "true" if self.cyl.isChecked() else "false")
         s.setValue("subd_nurbs", "true" if self.nurbs.isChecked() else "false")
+        s.setValue("subd_nurbs_mode", self.nurbs_mode.currentData())
         s.setValue("cyl_mode", self.cyl_mode.currentIndex())
         s.setValue("colors", "true" if self.colors.isChecked() else "false")
         s.setValue("author", self.author.text())
@@ -307,7 +317,8 @@ class StepPanel(QWidget):
         writer, extra = (self._writer_for(path) if path
                          else self._format()[:2])
         parts = collect_parts(scene, self.what.currentIndex() == 1,
-                              subd_nurbs=self.nurbs.isChecked() and writer is write_step)
+                              subd_nurbs=self.nurbs.isChecked() and writer is write_step,
+                              nurbs_mode=self.nurbs_mode.currentData())
         if not parts:
             self.out.setPlainText(self.T["nothing"])
             return

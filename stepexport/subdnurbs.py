@@ -358,9 +358,11 @@ def _place_children(grids, k0, M):
 
 
 def cage_to_bspline(points, faces, creases=None, spans: int = 1, samples: int | None = None,
-                    exact_tol: float = 1e-9) -> NurbsShell:
+                    exact_tol: float = 1e-9, merge: bool = True) -> NurbsShell:
     """B-spline faces of a Catmull-Clark cage (see module text): one face per
-    quad of the cage, ``spans`` knot spans per half edge."""
+    quad of the cage, ``spans`` knot spans per half edge. ``merge=False``:
+    one face per quad of the once-refined cage instead (every cage face cut
+    into its Catmull-Clark quads)."""
     V = np.asarray(points, dtype=float)
     cage = [list(map(int, f)) for f in faces if len(f) >= 3]
     sharp = {ekey(int(a), int(b)): float(s) for (a, b), s in (creases or {}).items()
@@ -377,7 +379,7 @@ def cage_to_bspline(points, faces, creases=None, spans: int = 1, samples: int | 
     for f in cage:
         first.append(k)
         k += len(f)
-    merged = [len(f) == 4 for f in cage]
+    merged = [merge and len(f) == 4 for f in cage]
     edge_faces: dict = {}
     for fi, f in enumerate(cage):
         for i in range(len(f)):
@@ -499,10 +501,34 @@ def shell_volume(sh: NurbsShell, order: int = 6) -> float:
     return tot / 3
 
 
-def cage_to_nurbs_tol(points, faces, creases=None, tol=None, max_spans: int = 8) -> NurbsShell:
-    """:func:`cage_to_bspline` with as few knot spans as keep the faces within
-    ``tol`` (cage units) of the subdivision surface; one span per half edge
-    when ``tol`` is None."""
+def cage_to_patches(points, faces, creases=None, levels: int = 1) -> NurbsShell:
+    """Small patches: one bicubic Bezier face per quad of the cage refined
+    ``levels`` times (the first export, kept for SubD tools that work on such
+    patches, e.g. a CAD program's own subdivision editing)."""
+    V = np.asarray(points, dtype=float)
+    F = [list(map(int, f)) for f in faces if len(f) >= 3]
+    sharp = {ekey(int(a), int(b)): float(s) for (a, b), s in (creases or {}).items()
+             if s and s > 0}
+    for _ in range(max(1, int(levels)) - 1):
+        V, F, sharp, _e, _n = _cc_step(V, F, sharp)
+    sh = cage_to_bspline(V, F, sharp, spans=1, merge=False)
+    sh.notes.append(f"levels={max(1, int(levels))}")
+    return sh
+
+
+def cage_to_nurbs_tol(points, faces, creases=None, tol=None, max_spans: int = 8,
+                      mode: str = "panels", max_levels: int = 3) -> NurbsShell:
+    """The faces within ``tol`` (cage units) of the subdivision surface, as
+    few as possible. ``mode``: ``"panels"`` one face per cage quad, knot spans
+    added until it holds (V2); ``"patches"`` small Bezier patches, the cage
+    refined until it holds (V1). Without ``tol``: the coarsest."""
+    if mode == "patches":
+        lv = 1
+        sh = cage_to_patches(points, faces, creases, lv)
+        while tol is not None and sh.max_fit > tol and lv < max_levels:
+            lv += 1
+            sh = cage_to_patches(points, faces, creases, lv)
+        return sh
     n = 1
     sh = cage_to_bspline(points, faces, creases, spans=n)
     while tol is not None and sh.max_fit > tol and n < max_spans:
