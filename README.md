@@ -36,6 +36,34 @@ during development, with FreeCAD's kernel (OpenCascade): all solids valid.
 
 Export does not write cones, spheres, tori or free-form NURBS surfaces yet.
 
+## SubD bodies as NURBS
+
+![A SubD body in IngeTrazo, and the NURBS STEP it gives, read in a CAD program: one face per cage panel, or small patches](screenshots/subd-nurbs.png)
+
+Bodies made with the **SubD** extension (Catmull-Clark subdivision) are written as smooth
+**B-spline surfaces** rebuilt from their control cage, not as facets (option *SubD bodies as
+NURBS surfaces*, on by default, STEP only):
+
+- **One per cage panel (light)**: one bicubic B-spline face per quad of the cage, the panels you
+  modelled; few faces, easy in any CAD program. Knot spans are added until the faces are within
+  0.1 mm of the SubD surface.
+- **Small patches (for SubD editing)**: one bicubic Bézier patch per quad of the refined cage,
+  the kind a CAD program's own subdivision tools edit.
+
+On ordinary areas (four quads around each point, no crease) the export is exact; around
+extraordinary points and creases the faces are fitted, and the report gives the largest distance
+to the SubD surface. A closed cage gives a closed solid (faces share their edge curves), an open
+one a surface. A body *finished* with SubD 1.4 or later (coming) keeps its cage and still exports as
+NURBS, moved, turned or scaled; once its mesh is edited it is written as facets, and the report
+says so. Checked with OpenCascade (valid solids, same volume as the subdivision surface) and in
+a commercial CAD program.
+
+*En français* : les corps **SubD** sortent en surfaces **NURBS** lisses reconstruites depuis leur
+cage — une face par panneau de la cage (léger, pour tout logiciel de CAO) ou de petits carreaux
+(pour retoucher en subdivision). Exact sur les zones régulières, à 0,1 mm près ailleurs ; un
+corps terminé avec SubD 1.4 (à venir) garde sa cage et sort encore en NURBS tant que son maillage n'est pas
+modifié.
+
 ## IGES
 
 The same solids, cylinders and ellipses as the STEP, written to IGES 5.3 (`.igs`) from the public
