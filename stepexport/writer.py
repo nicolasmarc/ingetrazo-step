@@ -274,6 +274,8 @@ def write_step(parts, path=None, scale=1000.0, unit="mm", author="",
             dir_cache[k] = E.ref("DIRECTION('',(%s))" % ",".join(_real(c) for c in k))
         return dir_cache[k]
 
+    nurbs_parts = [p for p in parts if getattr(p, "nurbs", None) is not None]
+    parts = [p for p in parts if getattr(p, "nurbs", None) is None]
     prepared, prep_report = prepare_shells(
         parts, scale, unit, weld_tol, cylinders, cyl_mode, cyl_tol,
         angle_max, repair_tol, simplify_tol, snap)
@@ -370,6 +372,66 @@ def write_step(parts, path=None, scale=1000.0, unit="mm", author="",
             part_items.extend((nm, [it]) for nm, it in zip(item_names, items))
         elif items:
             part_items.append((part.name, items))
+
+    # --- SubD bodies: bicubic B-spline faces --------------------------------
+    def nets(rows):
+        return "(" + ",".join("(" + ",".join(point(p) for p in row) + ")"
+                              for row in rows) + ")"
+
+    def knots(kn):
+        vals, mult = np.unique(np.round(np.asarray(kn, float), 12), return_counts=True)
+        return ("(" + ",".join(str(int(m)) for m in mult) + ")",
+                "(" + ",".join(_real(v) for v in vals) + ")")
+
+    for part in nurbs_parts:
+        sh = part.nurbs
+        vref = {i: E.ref(f"VERTEX_POINT('',{point(p)})") for i, p in sh.verts.items()}
+        eref = {}
+        for (a, b), (ctrl, kn) in sh.edges.items():
+            m, k = knots(kn)
+            crv = E.ref(f"B_SPLINE_CURVE_WITH_KNOTS('',3,("
+                        f"{','.join(point(p) for p in ctrl)}),.UNSPECIFIED.,.F.,.F.,"
+                        f"{m},{k},.UNSPECIFIED.)")
+            eref[(a, b)] = E.ref(f"EDGE_CURVE('',{vref[a]},{vref[b]},{crv},.T.)")
+        face_refs = []
+        for f in sh.faces:
+            oes = [E.ref(f"ORIENTED_EDGE('',*,*,{eref[key]},{'.T.' if fwd else '.F.'})")
+                   for key, fwd in f.loop]
+            el = E.ref(f"EDGE_LOOP('',({','.join(oes)}))")
+            bound = E.ref(f"FACE_OUTER_BOUND('',{el},.T.)")
+            mu, ku = knots(f.ku)
+            mv, kv = knots(f.kv)
+            # STEP lists control points u-major: net P[i][j] has i along v
+            srf = E.ref(f"B_SPLINE_SURFACE_WITH_KNOTS('',3,3,{nets(np.swapaxes(f.net, 0, 1))},"
+                        f".UNSPECIFIED.,.F.,.F.,.F.,{mu},{mv},{ku},{kv},.UNSPECIFIED.)")
+            face_refs.append(E.ref(f"ADVANCED_FACE('',({bound}),{srf},.T.)"))
+        report["faces"] += len(face_refs)
+        report.setdefault("nurbs_faces", 0)
+        report["nurbs_faces"] += len(face_refs)
+        if sh.closed:
+            shell = E.ref(f"CLOSED_SHELL('',({','.join(face_refs)}))")
+            solid = E.ref(f"MANIFOLD_SOLID_BREP({_str(part.name)},{shell})")
+            report["solids"] += 1
+        else:
+            shell = E.ref(f"OPEN_SHELL('',({','.join(face_refs)}))")
+            solid = E.ref(f"SHELL_BASED_SURFACE_MODEL({_str(part.name)},({shell}))")
+            report["shells"] += 1
+        from .subdnurbs import shell_volume
+        report["parts"].append({"name": part.name, "nurbs": True, "shells": [{
+            "name": part.name, "closed": sh.closed, "faces": len(face_refs),
+            "volume": shell_volume(sh) * scale ** 3, "problems": [],
+            "nurbs": {"faces": len(face_refs), "gap": sh.max_fit * scale}}]})
+        if part.color:
+            r, g, b = part.color[:3]
+            cc = E.ref(f"COLOUR_RGB('',{_real(r)},{_real(g)},{_real(b)})")
+            fa = E.ref(f"FILL_AREA_STYLE_COLOUR('',{cc})")
+            fas = E.ref(f"FILL_AREA_STYLE('',({fa}))")
+            sfa = E.ref(f"SURFACE_STYLE_FILL_AREA({fas})")
+            ss = E.ref(f"SURFACE_SIDE_STYLE('',({sfa}))")
+            ssu = E.ref(f"SURFACE_STYLE_USAGE(.BOTH.,{ss})")
+            psa = E.ref(f"PRESENTATION_STYLE_ASSIGNMENT(({ssu}))")
+            styled.append(E.ref(f"STYLED_ITEM('color',({psa}),{solid})"))
+        part_items.append((part.name, [solid]))
 
     # --- products: one per part, under an assembly when there are several --
     pdc = E.ref(f"PRODUCT_DEFINITION_CONTEXT('part definition',{app},'design')")

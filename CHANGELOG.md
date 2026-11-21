@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.6.0 — 2026-11-21
+- **SubD bodies as NURBS surfaces** (STEP). A body made with the SubD extension is written as
+  smooth B-spline faces rebuilt from its control cage instead of facets: exact on ordinary areas,
+  fitted within 0.1 mm around extraordinary points and creases (semi-sharp creases follow SubD's
+  rule). A closed cage gives a closed solid. Two layouts, chosen in the panel:
+  *one face per cage panel* (light: 46 faces for a test stool, 70 for a bottle) or *small
+  patches* (bicubic Bézier patches of the refined cage, for a CAD program's subdivision tools).
+  The report gives the faces, the largest distance to the SubD surface and the volume.
+- **Finished SubD bodies too.** SubD 1.4 (coming) keeps the cage of a finished body; it is exported as
+  NURBS while its mesh is unchanged (moves, turns and scales are followed), as facets with a note
+  in the report once edited.
+- Pure numpy (own B-spline basis, knot insertion and fitting). Checked with OpenCascade (valid
+  solids, same volume) and against the SubD extension's own subdivision. Panel text en / fr / es.
+- Tests: the window test closes IngeTrazo 0.6.2+ without its save prompt.
+
 ## 0.5.1 — 2026-11-01
 - **The file follows the document's units.** The *Unit* list starts with **Document (…)**,
   the units set in IngeTrazo, read at each export: millimetres, centimetres and metres as they

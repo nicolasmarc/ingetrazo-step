@@ -65,6 +65,15 @@ class StepPanel(QWidget):
             self.unit.addItem(u, u)
         self.unit.setToolTip(T["unit_tip"])
         form.addRow(T["unit"], self.unit)
+        self.nurbs = QCheckBox(T["nurbs"])
+        self.nurbs.setToolTip(T["nurbs_tip"])
+        form.addRow(self.nurbs)
+        self.nurbs_mode = QComboBox()
+        self.nurbs_mode.addItem(T["nurbs_panels"], "panels")
+        self.nurbs_mode.addItem(T["nurbs_patches"], "patches")
+        self.nurbs_mode.setToolTip(T["nurbs_mode_tip"])
+        self.nurbs.toggled.connect(self.nurbs_mode.setEnabled)
+        form.addRow(T["nurbs_faces"], self.nurbs_mode)
         self.cyl = QCheckBox(T["cyl"])
         self.cyl.setToolTip(T["cyl_tip"])
         form.addRow(self.cyl)
@@ -122,6 +131,10 @@ class StepPanel(QWidget):
         i = self.unit.findData(s.value("export_unit", "doc"))
         self.unit.setCurrentIndex(max(i, 0))
         self.cyl.setChecked(s.value("cylinders", "true") == "true")
+        self.nurbs.setChecked(s.value("subd_nurbs", "true") == "true")
+        self.nurbs_mode.setCurrentIndex(max(0, self.nurbs_mode.findData(
+            s.value("subd_nurbs_mode", "panels"))))
+        self.nurbs_mode.setEnabled(self.nurbs.isChecked())
         self.cyl_mode.setCurrentIndex(int(s.value("cyl_mode", 0)))
         self.colors.setChecked(s.value("colors", "true") == "true")
         self.author.setText(s.value("author", ""))
@@ -136,6 +149,8 @@ class StepPanel(QWidget):
         s.setValue("format", self.fmt.currentIndex())
         s.setValue("export_unit", self.unit.currentData())
         s.setValue("cylinders", "true" if self.cyl.isChecked() else "false")
+        s.setValue("subd_nurbs", "true" if self.nurbs.isChecked() else "false")
+        s.setValue("subd_nurbs_mode", self.nurbs_mode.currentData())
         s.setValue("cyl_mode", self.cyl_mode.currentIndex())
         s.setValue("colors", "true" if self.colors.isChecked() else "false")
         s.setValue("author", self.author.text())
@@ -298,7 +313,12 @@ class StepPanel(QWidget):
     def run(self, path):
         self._save()
         scene = self.app.scene
-        parts = collect_parts(scene, self.what.currentIndex() == 1)
+        default = self._format()[-1]
+        writer, extra = (self._writer_for(path) if path
+                         else self._format()[:2])
+        parts = collect_parts(scene, self.what.currentIndex() == 1,
+                              subd_nurbs=self.nurbs.isChecked() and writer is write_step,
+                              nurbs_mode=self.nurbs_mode.currentData())
         if not parts:
             self.out.setPlainText(self.T["nothing"])
             return
@@ -306,9 +326,6 @@ class StepPanel(QWidget):
             for p in parts:
                 p.color = None
         unit = self._export_unit()
-        default = self._format()[-1]
-        writer, extra = (self._writer_for(path) if path
-                         else self._format()[:2])
         try:
             _, rep = writer(
                 parts, path=path, scale=UNIT_SCALE[unit], unit=unit,
@@ -323,6 +340,9 @@ class StepPanel(QWidget):
             QMessageBox.warning(self, "STEP", f"{self.T['failed']}\n{exc}")
             return
         text = format_report(rep, unit, self.lang)
+        edited = [p.name for p in parts if getattr(p, "subd_edited", False)]
+        if edited:
+            text = "\n".join(self.T["nurbs_edited"].format(n=n) for n in edited) + "\n\n" + text
         if path:
             text = f"{self.T['written']} {path}\n\n" + text
         self.out.setPlainText(text)

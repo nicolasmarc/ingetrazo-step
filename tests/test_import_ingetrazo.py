@@ -152,10 +152,73 @@ def test_iges_from_the_panel():
         assert s["solids"] == 3 and s["valid"]
 
 
+def test_subd_body_exports_as_nurbs():
+    """A SubD group (the Subdivision extension's cage in ``ext``) goes out
+    as B-spline faces with the option on, as facets with it off and in
+    IGES. The Subdivision extension itself is not needed."""
+    if SKIP:
+        print("skip:", SKIP); return
+    win = _window()
+    from core.group import Group
+    from core.mesh import Mesh
+    from PySide6.QtGui import QVector3D
+    panel = _s["panel"]
+    scene = win.viewport.scene
+    cube = [(x, y, z) for x in (0, 1) for y in (0, 1) for z in (0, 1)]
+    quads = [[0, 2, 6, 4], [1, 5, 7, 3], [0, 4, 5, 1], [2, 3, 7, 6], [0, 1, 3, 2], [4, 6, 7, 5]]
+    mesh = Mesh()
+    for q in quads:
+        mesh.add_face([QVector3D(*cube[i]) for i in q])
+    g = Group(mesh, name="SubD")
+    g.ext = {"subdiv": {"cage": {"verts": [list(p) for p in cube], "faces": quads,
+                                 "creases": []}, "levels": 2, "lines": "cage"}}
+    scene.groups.append(g)
+    scene.version += 1
+    scene.selection.clear()
+    scene.selection.add(g)
+    panel.what.setCurrentIndex(1)
+    panel.fmt.setCurrentIndex(0)
+    d = Path(tempfile.mkdtemp())
+    try:
+        panel.nurbs.setChecked(True)
+        panel.run(str(d / "nurbs.stp"))
+        text = (d / "nurbs.stp").read_text()
+        assert text.count("B_SPLINE_SURFACE_WITH_KNOTS") == 6      # one face per cage quad
+        panel.nurbs_mode.setCurrentIndex(panel.nurbs_mode.findData("patches"))
+        panel.run(str(d / "patches.stp"))
+        assert (d / "patches.stp").read_text().count("B_SPLINE_SURFACE_WITH_KNOTS") >= 24
+        panel.nurbs_mode.setCurrentIndex(panel.nurbs_mode.findData("panels"))
+        assert "NURBS" in panel.out.toPlainText()
+        # a finished SubD keeps its cage under "subdiv_source": NURBS while
+        # the mesh is the one Finish made, facets (and a note) once edited
+        cage = g.ext.pop("subdiv")
+        g.ext["subdiv_source"] = dict(cage, nverts=len(mesh.vertices), nfaces=len(mesh.faces))
+        panel.run(str(d / "finished.stp"))
+        assert (d / "finished.stp").read_text().count("B_SPLINE_SURFACE_WITH_KNOTS") == 6
+        g.ext["subdiv_source"]["nfaces"] += 1
+        panel.run(str(d / "edited.stp"))
+        assert "B_SPLINE_SURFACE" not in (d / "edited.stp").read_text()
+        assert "SubD" in panel.out.toPlainText().splitlines()[2]
+        g.ext["subdiv"] = g.ext.pop("subdiv_source")
+        panel.nurbs.setChecked(False)
+        panel.run(str(d / "facets.stp"))
+        assert "B_SPLINE_SURFACE" not in (d / "facets.stp").read_text()
+        panel.nurbs.setChecked(True)
+        panel.fmt.setCurrentIndex(1)                 # IGES: facets, not B-splines
+        panel.run(str(d / "subd.igs"))
+        assert (d / "subd.igs").stat().st_size > 0
+    finally:
+        panel.fmt.setCurrentIndex(0)
+        scene.groups.remove(g)
+        scene.selection.clear()
+        scene.version += 1
+
+
 def teardown_module(module=None):
     win = _s.pop("win", None)
     if win is not None:
         win._saved_version = win.viewport.scene.version
+        win._is_dirty = lambda: False        # 0.6.2+ asks before closing otherwise
         win.close()
 
 
