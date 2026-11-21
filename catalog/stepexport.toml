@@ -11,7 +11,7 @@ download = "https://raw.githubusercontent.com/nicolasmarc/ingetrazo-step/ada0cb4
 sha256 = "ac6c26cea80ffdfd5bae7d1e6e2f7dc3a89ddfa3561d44dee46c08a6b5710c43"
 ingetrazo = "0.5.8"
 tags = ["import-export", "productivity"]
-screenshot = "stepexport.png"
+screenshot = "stepexport-subd.png"
 
 [name]
 es = "STEP / IGES: exportar, e importar STEP"
