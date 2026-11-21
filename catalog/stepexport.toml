@@ -2,13 +2,13 @@
 # Replace the sha256 if the zip was rebuilt (python tools/build_zip.py prints it).
 
 id = "stepexport"
-version = "0.5.1"
+version = "0.6.0"
 author = "Nicolas Marc"
 author_url = "https://github.com/nicolasmarc"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/nicolasmarc/ingetrazo-step"
-download = "https://raw.githubusercontent.com/nicolasmarc/ingetrazo-step/c08208aa2899ead46c3c63ae002af72943ebe483/dist/stepexport-0.5.1.zip"
-sha256 = "e3c2b8c792e4e3ddfbc0c359e529ec0b62c03465a5355720685a6912e443e597"
+download = "https://raw.githubusercontent.com/nicolasmarc/ingetrazo-step/ada0cb4929336c526455bd06d5d42748a533fcc0/dist/stepexport-0.6.0.zip"
+sha256 = "ac6c26cea80ffdfd5bae7d1e6e2f7dc3a89ddfa3561d44dee46c08a6b5710c43"
 ingetrazo = "0.5.8"
 tags = ["import-export", "productivity"]
 screenshot = "stepexport.png"
@@ -19,6 +19,6 @@ en = "STEP / IGES export and STEP import"
 pt = "STEP / IGES: exportar, e importar STEP"
 
 [summary]
-es = "Exporta los grupos como sólidos STEP o IGES editables (caras planas, agujeros, cilindros reales), convierte un DXF 3D en STEP con cotas exactas e importa ensamblajes STEP: un grupo por pieza, con nombre y color."
-en = "Export groups as editable STEP or IGES solids (planar faces, holes, true cylinders), convert a 3D DXF to STEP with exact sizes, and import STEP assemblies: one group per part, named and coloured."
-pt = "Exporta os grupos como sólidos STEP ou IGES editáveis (faces planas, furos, cilindros reais), converte um DXF 3D em STEP com cotas exatas e importa montagens STEP: um grupo por peça, com nome e cor."
+es = "Exporta los grupos como sólidos STEP o IGES editables (caras planas, agujeros, cilindros reales, cuerpos SubD como superficies NURBS), convierte un DXF 3D en STEP con cotas exactas e importa ensamblajes STEP: un grupo por pieza, con nombre y color."
+en = "Export groups as editable STEP or IGES solids (planar faces, holes, true cylinders, SubD bodies as NURBS surfaces), convert a 3D DXF to STEP with exact sizes, and import STEP assemblies: one group per part, named and coloured."
+pt = "Exporta os grupos como sólidos STEP ou IGES editáveis (faces planas, furos, cilindros reais, corpos SubD como superfícies NURBS), converte um DXF 3D em STEP com cotas exatas e importa montagens STEP: um grupo por peça, com nome e cor."
