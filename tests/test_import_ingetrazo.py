@@ -189,6 +189,17 @@ def test_subd_body_exports_as_nurbs():
         assert (d / "patches.stp").read_text().count("B_SPLINE_SURFACE_WITH_KNOTS") >= 24
         panel.nurbs_mode.setCurrentIndex(panel.nurbs_mode.findData("panels"))
         assert "NURBS" in panel.out.toPlainText()
+        # a finished SubD keeps its cage under "subdiv_source": NURBS while
+        # the mesh is the one Finish made, facets (and a note) once edited
+        cage = g.ext.pop("subdiv")
+        g.ext["subdiv_source"] = dict(cage, nverts=len(mesh.vertices), nfaces=len(mesh.faces))
+        panel.run(str(d / "finished.stp"))
+        assert (d / "finished.stp").read_text().count("B_SPLINE_SURFACE_WITH_KNOTS") == 6
+        g.ext["subdiv_source"]["nfaces"] += 1
+        panel.run(str(d / "edited.stp"))
+        assert "B_SPLINE_SURFACE" not in (d / "edited.stp").read_text()
+        assert "SubD" in panel.out.toPlainText().splitlines()[2]
+        g.ext["subdiv"] = g.ext.pop("subdiv_source")
         panel.nurbs.setChecked(False)
         panel.run(str(d / "facets.stp"))
         assert "B_SPLINE_SURFACE" not in (d / "facets.stp").read_text()

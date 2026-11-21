@@ -537,11 +537,26 @@ def cage_to_nurbs_tol(points, faces, creases=None, tol=None, max_spans: int = 8,
     return sh
 
 
+#: Where a group keeps its cage: a live SubD body, or one the Subdivision
+#: extension finished (an ordinary mesh that remembers the cage it came from).
+CAGE_KEYS = ("subdiv", "subdiv_source")
+
+
+def cage_payload(ext: dict):
+    """``(key, data)`` of the cage a group carries, or ``(None, None)``."""
+    for key in CAGE_KEYS:
+        data = (ext or {}).get(key)
+        if data and "cage" in data:
+            return key, data
+    return None, None
+
+
 def from_ext(ext: dict):
     """``(points, faces, creases)`` of a SubD group's ``ext`` payload (the
-    Subdivision extension's format), or ``None``."""
-    data = (ext or {}).get("subdiv")
-    if not data or "cage" not in data:
+    Subdivision extension's format; a live body or a finished one), or
+    ``None``."""
+    _key, data = cage_payload(ext)
+    if not data:
         return None
     cage = data["cage"]
     pts = [tuple(map(float, p)) for p in cage.get("verts", [])]

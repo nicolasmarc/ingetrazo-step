@@ -178,8 +178,9 @@ def _cage_in_world(group, mesh, pts):
     Subdivision extension remembers a few surface points when it builds
     the group and carries the cage along with them; the same fit is used
     here (its own module when installed, else the centroid's move)."""
-    data = (getattr(group, "ext", None) or {}).get("subdiv") or {}
-    ref = data.get("ref")
+    from .subdnurbs import cage_payload
+    _key, data = cage_payload(getattr(group, "ext", None))
+    ref = (data or {}).get("ref")
     if not ref:
         return pts
     positions = [_xyz(v.position) for v in getattr(mesh, "vertices", [])]
@@ -200,13 +201,20 @@ def _cage_in_world(group, mesh, pts):
 def nurbs_part(name, group, mesh, paint=None, tol=1e-4, mode="panels"):
     """A Part holding the group's SubD surface as B-spline faces, or None
     when the group is not a SubD body."""
-    from .subdnurbs import cage_to_nurbs_tol, from_ext
+    from .subdnurbs import cage_payload, cage_to_nurbs_tol, from_ext
+    key, payload = cage_payload(getattr(group, "ext", None))
     data = from_ext(getattr(group, "ext", None))
     if data is None:
         return None
     pts, fs, cr = data
     if not pts or not fs:
         return None
+    if key == "subdiv_source":
+        # a finished body: its cage still describes it only while the mesh
+        # is the one Finish made (moved, turned or scaled is fine)
+        n = payload.get("nverts"), payload.get("nfaces")
+        if n != (len(getattr(mesh, "vertices", [])), len(getattr(mesh, "faces", []))):
+            return "edited"
     pts = _cage_in_world(group, mesh, pts)
     sh = cage_to_nurbs_tol(pts, fs, cr, tol=tol, mode=mode)
     return Part(name, [], _color(mesh.faces, paint), None, nurbs=sh)
@@ -243,6 +251,11 @@ def collect_parts(scene, selection_only=False, world_mesh=None, subd_nurbs=False
         name = unique(str(getattr(g, "name", "Groupe")))
         if subd_nurbs:
             part = nurbs_part(name, g, mesh, paint, nurbs_tol, nurbs_mode)
+            if part == "edited":
+                part = faces_part(name, mesh.faces, mesh.edges, paint)
+                part.subd_edited = True
+                parts.append(part)
+                continue
             if part is not None:
                 parts.append(part)
                 continue

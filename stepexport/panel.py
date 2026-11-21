@@ -340,6 +340,9 @@ class StepPanel(QWidget):
             QMessageBox.warning(self, "STEP", f"{self.T['failed']}\n{exc}")
             return
         text = format_report(rep, unit, self.lang)
+        edited = [p.name for p in parts if getattr(p, "subd_edited", False)]
+        if edited:
+            text = "\n".join(self.T["nurbs_edited"].format(n=n) for n in edited) + "\n\n" + text
         if path:
             text = f"{self.T['written']} {path}\n\n" + text
         self.out.setPlainText(text)

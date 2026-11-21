@@ -21,3 +21,5 @@ class Part:
     # A SubD body exported as bicubic B-spline faces
     # (:class:`subdnurbs.NurbsShell`, metres); ``faces`` is then ignored.
     nurbs: object = None
+    # a finished SubD edited since (its cage no longer matches): facets
+    subd_edited: bool = False
